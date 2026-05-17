@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Alétrain tire au sort un quai, un train et un nombre d'arrêts pour partir au hasard en Suisse."
+    />
+    <title>Alétrain</title>
+    <link rel="preconnect" href="https://unpkg.com" />
+    <link rel="preconnect" href="https://tile.openstreetmap.org" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIINfQkFrniZFUx0UO2dR2swK1gQmtxVd8="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar" aria-label="Navigation principale">
+        <a class="brand" href="/" aria-label="Alétrain">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span>Alétrain</span>
+        </a>
+        <button class="icon-button" id="locateTopButton" type="button" aria-label="Me localiser">
+          <span aria-hidden="true">⌖</span>
+        </button>
+      </header>
+
+      <main>
+        <section class="hero">
+          <div class="hero-copy">
+            <p class="eyebrow">Train aléatoire suisse</p>
+            <h1>Pars sans choisir la destination.</h1>
+            <p class="lead">
+              Trouve la gare la plus proche, tire un quai actif au hasard, puis laisse le train
+              décider combien d'arrêts tu restes à bord.
+            </p>
+          </div>
+
+          <div class="control-panel" aria-label="Controle du tirage">
+            <div class="station-tools">
+              <button class="primary-button" id="locateButton" type="button">
+                Utiliser ma position
+              </button>
+              <form class="station-search" id="stationSearch">
+                <label for="stationInput">Ou chercher une gare</label>
+                <div class="input-row">
+                  <input
+                    id="stationInput"
+                    name="station"
+                    type="search"
+                    placeholder="Lausanne, Zurich HB..."
+                    autocomplete="off"
+                  />
+                  <button class="secondary-button" type="submit">Chercher</button>
+                </div>
+              </form>
+            </div>
+
+            <div class="status-line" id="statusLine" role="status">
+              Carte prête. Autorise ta position ou cherche une gare.
+            </div>
+          </div>
+        </section>
+
+        <section class="map-section" aria-label="Carte centree sur la Suisse">
+          <div id="map" class="map"></div>
+          <div class="map-card" id="stationCard">
+            <span class="small-label">Gare de départ</span>
+            <strong id="stationName">Aucune gare selectionnee</strong>
+            <span id="stationMeta">Les prochains trains apparaîtront ici.</span>
+          </div>
+        </section>
+
+        <section class="draw-section">
+          <div class="draw-card main-draw">
+            <div class="draw-header">
+              <div>
+                <span class="small-label">Premier tirage</span>
+                <h2>Quai puis train</h2>
+              </div>
+              <span class="draw-pill" id="platformCount">0 quai</span>
+            </div>
+            <button class="draw-button" id="drawPlatformButton" type="button" disabled>
+              Tirer un quai
+            </button>
+            <div class="result-board" id="trainResult">
+              <span class="result-kicker">Resultat</span>
+              <strong>En attente du tirage</strong>
+              <p>Les quais sont déduits des prochains départs en train disponibles dans la gare.</p>
+            </div>
+          </div>
+
+          <div class="draw-card">
+            <div class="draw-header">
+              <div>
+                <span class="small-label">Deuxième tirage</span>
+                <h2>Nombre d'arrêts</h2>
+              </div>
+              <span class="draw-pill" id="stopCount">0 stop</span>
+            </div>
+            <button class="secondary-button full-width" id="drawStopsButton" type="button" disabled>
+              Tirer les arrêts
+            </button>
+            <div class="stops-preview" id="stopsPreview">
+              Selectionne d'abord un train.
+            </div>
+          </div>
+        </section>
+
+        <section class="departures-section">
+          <div class="section-heading">
+            <span class="small-label">Prochains départs</span>
+            <h2>Quais disponibles</h2>
+          </div>
+          <div class="departure-list" id="departureList">
+            <article class="empty-state">
+              Autorise la localisation ou cherche une gare pour charger les trains.
+            </article>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="app.js"></script>
+  </body>
+</html>
