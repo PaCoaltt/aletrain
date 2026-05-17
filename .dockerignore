@@ -1,0 +1,6 @@
+.git
+.gitignore
+server.err.log
+server.out.log
+README.md
+design.md

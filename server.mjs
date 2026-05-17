@@ -4,6 +4,7 @@ import { extname, join, resolve } from "node:path";
 
 const root = resolve(".");
 const port = Number(process.env.PORT || 4173);
+const host = process.env.HOST || "0.0.0.0";
 const types = {
   ".html": "text/html; charset=utf-8",
   ".css": "text/css; charset=utf-8",
@@ -31,6 +32,6 @@ createServer(async (request, response) => {
     response.writeHead(404);
     response.end("Not found");
   }
-}).listen(port, "127.0.0.1", () => {
-  console.log(`Aletrain running at http://127.0.0.1:${port}`);
+}).listen(port, host, () => {
+  console.log(`Aletrain running at http://${host}:${port}`);
 });
