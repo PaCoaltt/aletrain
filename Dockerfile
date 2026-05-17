@@ -2,10 +2,9 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-COPY . .
+COPY index.html app.js styles.css server.mjs ./
 
 ENV NODE_ENV=production
-ENV PORT=4173
 
 EXPOSE 4173
 
