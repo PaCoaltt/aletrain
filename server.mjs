@@ -16,6 +16,7 @@ const types = {
 const defaultData = {
   users: [],
   reports: [],
+  telegramUpdateOffset: 0,
 };
 
 let writeQueue = Promise.resolve();
@@ -28,6 +29,7 @@ async function readDatabase() {
     return {
       users: Array.isArray(data.users) ? data.users : [],
       reports: Array.isArray(data.reports) ? data.reports : [],
+      telegramUpdateOffset: Number.isFinite(Number(data.telegramUpdateOffset)) ? Number(data.telegramUpdateOffset) : 0,
     };
   } catch {
     return structuredClone(defaultData);
@@ -112,6 +114,54 @@ async function notifyTelegram(report) {
   }
 }
 
+function applyAdminDecision(data, text, replyToMessageId) {
+  const reportIndex = data.reports.findIndex((report) => report.telegramMessageId === replyToMessageId);
+  if (reportIndex === -1) return "not_found";
+
+  if (text === "ok") {
+    data.reports[reportIndex].adminDecision = "approved";
+  } else {
+    data.reports.splice(reportIndex, 1);
+  }
+
+  return "updated";
+}
+
+async function syncTelegramReplies(data) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return false;
+
+  try {
+    const offset = Number(data.telegramUpdateOffset || 0);
+    const response = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=${offset}&timeout=0`);
+    const payload = await response.json();
+    if (!payload.ok || !Array.isArray(payload.result) || payload.result.length === 0) return false;
+
+    let changed = false;
+    for (const update of payload.result) {
+      const message = update?.message;
+      const text = String(message?.text || "").trim().toLowerCase();
+      const replyToMessageId = message?.reply_to_message?.message_id;
+      const fromChatId = String(message?.chat?.id || "");
+      const updateId = Number(update?.update_id || 0);
+      if (Number.isFinite(updateId) && updateId >= data.telegramUpdateOffset) {
+        data.telegramUpdateOffset = updateId + 1;
+      }
+
+      if (!message || !["ok", "non"].includes(text) || fromChatId !== String(chatId)) continue;
+      if (!replyToMessageId) continue;
+      const status = applyAdminDecision(data, text, replyToMessageId);
+      if (status === "updated") changed = true;
+    }
+
+    return changed;
+  } catch (error) {
+    console.warn("Telegram sync failed:", error.message);
+    return false;
+  }
+}
+
 async function handleApi(request, response, url) {
   if (request.method === "POST" && url.pathname === "/api/profiles") {
     const body = await readRequestJson(request);
@@ -158,11 +208,10 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/reports") {
     const data = await readDatabase();
     const reports = cleanExpiredReports(data.reports);
-    if (reports.length !== data.reports.length) {
-      data.reports = reports;
-      await writeDatabase(data);
-    }
-    sendJson(response, 200, { reports: visibleReports(reports) });
+    data.reports = reports;
+    const telegramChanged = await syncTelegramReplies(data);
+    if (reports.length !== data.reports.length || telegramChanged) await writeDatabase(data);
+    sendJson(response, 200, { reports: visibleReports(data.reports) });
     return;
   }
 
@@ -229,22 +278,13 @@ async function handleApi(request, response, url) {
 
     const data = await readDatabase();
     data.reports = cleanExpiredReports(data.reports);
-    const reportIndex = data.reports.findIndex((report) => report.telegramMessageId === replyToMessageId);
-
-    if (reportIndex === -1) {
-      sendJson(response, 200, { status: "not_found" });
+    const status = applyAdminDecision(data, text, replyToMessageId);
+    if (status !== "updated") {
+      sendJson(response, 200, { status });
       return;
     }
-
-    const report = data.reports[reportIndex];
-    if (text === "ok") {
-      report.adminDecision = "approved";
-    } else {
-      data.reports.splice(reportIndex, 1);
-    }
-
     await writeDatabase(data);
-    sendJson(response, 200, { status: "updated" });
+    sendJson(response, 200, { status });
     return;
   }
 
