@@ -258,6 +258,6 @@ createServer(async (request, response) => {
     response.writeHead(404);
     response.end("Not found");
   }
-}).listen(port, "127.0.0.1", () => {
+}).listen(port, "0.0.0.0", () => {
   console.log(`Aletrain running at http://127.0.0.1:${port}`);
 });
