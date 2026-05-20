@@ -16,6 +16,7 @@ const types = {
 const defaultData = {
   users: [],
   reports: [],
+  telegramUpdateOffset: 0,
 };
 
 let writeQueue = Promise.resolve();
@@ -28,6 +29,7 @@ async function readDatabase() {
     return {
       users: Array.isArray(data.users) ? data.users : [],
       reports: Array.isArray(data.reports) ? data.reports : [],
+      telegramUpdateOffset: Number.isFinite(Number(data.telegramUpdateOffset)) ? Number(data.telegramUpdateOffset) : 0,
     };
   } catch {
     return structuredClone(defaultData);
@@ -70,6 +72,10 @@ function cleanExpiredReports(reports) {
   return reports.filter((report) => new Date(report.expiresAt).getTime() > now);
 }
 
+function visibleReports(reports) {
+  return reports.filter((report) => report.adminDecision === "approved");
+}
+
 function normalizeUsername(username) {
   return String(username || "").trim().toLowerCase();
 }
@@ -89,16 +95,70 @@ async function notifyTelegram(report) {
     `Par: ${report.reportedBy}`,
     reason,
     duration,
+    "",
+    "Repondez a CE message avec OK pour confirmer la suppression, ou NON pour la refuser.",
   ].join("\n");
 
   try {
-    await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const telegramResponse = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ chat_id: chatId, text }),
     });
+    const payload = await telegramResponse.json();
+    if (!payload.ok || !payload.result?.message_id) return null;
+    return payload.result.message_id;
   } catch (error) {
     console.warn("Telegram notification failed:", error.message);
+    return null;
+  }
+}
+
+function applyAdminDecision(data, text, replyToMessageId) {
+  const reportIndex = data.reports.findIndex((report) => report.telegramMessageId === replyToMessageId);
+  if (reportIndex === -1) return "not_found";
+
+  if (text === "ok") {
+    data.reports[reportIndex].adminDecision = "approved";
+  } else {
+    data.reports.splice(reportIndex, 1);
+  }
+
+  return "updated";
+}
+
+async function syncTelegramReplies(data) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  const chatId = process.env.TELEGRAM_CHAT_ID;
+  if (!token || !chatId) return false;
+
+  try {
+    const offset = Number(data.telegramUpdateOffset || 0);
+    const response = await fetch(`https://api.telegram.org/bot${token}/getUpdates?offset=${offset}&timeout=0`);
+    const payload = await response.json();
+    if (!payload.ok || !Array.isArray(payload.result) || payload.result.length === 0) return false;
+
+    let changed = false;
+    for (const update of payload.result) {
+      const message = update?.message;
+      const text = String(message?.text || "").trim().toLowerCase();
+      const replyToMessageId = message?.reply_to_message?.message_id;
+      const fromChatId = String(message?.chat?.id || "");
+      const updateId = Number(update?.update_id || 0);
+      if (Number.isFinite(updateId) && updateId >= data.telegramUpdateOffset) {
+        data.telegramUpdateOffset = updateId + 1;
+      }
+
+      if (!message || !["ok", "non"].includes(text) || fromChatId !== String(chatId)) continue;
+      if (!replyToMessageId) continue;
+      const status = applyAdminDecision(data, text, replyToMessageId);
+      if (status === "updated") changed = true;
+    }
+
+    return changed;
+  } catch (error) {
+    console.warn("Telegram sync failed:", error.message);
+    return false;
   }
 }
 
@@ -148,11 +208,10 @@ async function handleApi(request, response, url) {
   if (request.method === "GET" && url.pathname === "/api/reports") {
     const data = await readDatabase();
     const reports = cleanExpiredReports(data.reports);
-    if (reports.length !== data.reports.length) {
-      data.reports = reports;
-      await writeDatabase(data);
-    }
-    sendJson(response, 200, { reports });
+    data.reports = reports;
+    const telegramChanged = await syncTelegramReplies(data);
+    if (reports.length !== data.reports.length || telegramChanged) await writeDatabase(data);
+    sendJson(response, 200, { reports: visibleReports(data.reports) });
     return;
   }
 
@@ -186,12 +245,46 @@ async function handleApi(request, response, url) {
       stationName: String(body.stationName || "Gare inconnue"),
       confirmations: [],
       denials: [],
+      adminDecision: "pending",
+      telegramMessageId: null,
     };
 
     data.reports.push(report);
+    const messageId = await notifyTelegram(report);
+    report.telegramMessageId = messageId;
     await writeDatabase(data);
-    notifyTelegram(report);
     sendJson(response, 201, { report });
+    return;
+  }
+
+  if (request.method === "POST" && url.pathname === "/api/telegram/webhook") {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+    if (!token || !chatId) {
+      sendJson(response, 503, { error: "Telegram non configure." });
+      return;
+    }
+
+    const update = await readRequestJson(request);
+    const message = update?.message;
+    const text = String(message?.text || "").trim().toLowerCase();
+    const replyToMessageId = message?.reply_to_message?.message_id;
+    const fromChatId = String(message?.chat?.id || "");
+
+    if (!message || !replyToMessageId || !["ok", "non"].includes(text) || fromChatId !== String(chatId)) {
+      sendJson(response, 200, { status: "ignored" });
+      return;
+    }
+
+    const data = await readDatabase();
+    data.reports = cleanExpiredReports(data.reports);
+    const status = applyAdminDecision(data, text, replyToMessageId);
+    if (status !== "updated") {
+      sendJson(response, 200, { status });
+      return;
+    }
+    await writeDatabase(data);
+    sendJson(response, 200, { status });
     return;
   }
 
