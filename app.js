@@ -39,8 +39,6 @@ const elements = {
   logoutButton: document.querySelector("#logoutButton"),
   profileStatus: document.querySelector("#profileStatus"),
   profileName: document.querySelector("#profileName"),
-  durationInput: document.querySelector("#durationInput"),
-  durationHint: document.querySelector("#durationHint"),
   reportModal: document.querySelector("#reportModal"),
   reportForm: document.querySelector("#reportForm"),
   reportTitle: document.querySelector("#reportTitle"),
@@ -133,18 +131,6 @@ function journeyId(journey) {
 
 function currentUsername() {
   return state.profile?.username || "";
-}
-
-function getAvailableMinutes() {
-  const minutes = Number(elements.durationInput.value);
-  return Number.isFinite(minutes) && minutes > 0 ? minutes : null;
-}
-
-function travelMinutesToStop(journey, stop) {
-  const departure = new Date(journeyDeparture(journey)).getTime();
-  const arrival = new Date(stop.arrival || stop.departure || "").getTime();
-  if (!Number.isFinite(departure) || !Number.isFinite(arrival)) return null;
-  return Math.max(0, Math.round((arrival - departure) / 60000));
 }
 
 function getStationCoordinates(station) {
@@ -406,20 +392,10 @@ function getVisibleReportForCurrentUser(journey) {
 }
 
 function getReachableStops(journey) {
-  const minutes = getAvailableMinutes();
-  const remainingStops = getRemainingStops(journey);
-  if (!minutes) return remainingStops;
-
-  return remainingStops.filter((stop) => {
-    const travelMinutes = travelMinutesToStop(journey, stop);
-    return travelMinutes !== null && travelMinutes <= minutes;
-  });
+  return getRemainingStops(journey);
 }
 
 function getDrawableJourneys() {
-  const minutes = getAvailableMinutes();
-  if (!minutes) return [];
-
   return state.stationboard.filter((journey) => {
     const platform = String(journey.stop?.platform || journey.stop?.prognosis?.platform || "").trim();
     return platform && !isTrainBlockedFromDraw(journey) && getReachableStops(journey).length > 0;
@@ -462,18 +438,14 @@ function renderProfile() {
 function renderStation() {
   const platformTotal = state.platforms.size;
   const trainTotal = state.stationboard.filter((journey) => !isTrainHiddenForCurrentUser(journey)).length;
-  const minutes = getAvailableMinutes();
 
   elements.stationName.textContent = state.station?.name || "Aucune gare sélectionnée";
   elements.stationMeta.textContent =
     trainTotal > 0
-      ? `${trainTotal} prochains trains visibles, ${platformTotal} quai${platformTotal > 1 ? "s" : ""} compatibles avec ${minutes || "la durée indiquée"} min.`
+      ? `${trainTotal} prochains trains visibles, ${platformTotal} quai${platformTotal > 1 ? "s" : ""} disponibles.`
       : "Aucun prochain départ en train n'a été trouvé.";
   elements.platformCount.textContent = `${platformTotal} quai${platformTotal > 1 ? "s" : ""}`;
   elements.drawPlatformButton.disabled = platformTotal === 0;
-  elements.durationHint.textContent = minutes
-    ? `${platformTotal} quai${platformTotal > 1 ? "s" : ""} possible${platformTotal > 1 ? "s" : ""} pour ${minutes} min.`
-    : "Indique une durée pour activer le tirage.";
 }
 
 function renderDepartures() {
@@ -517,7 +489,7 @@ function renderDepartures() {
           <div class="departure-main">
             <strong>${escapeHtml(journeyTitle(journey))} → ${escapeHtml(journeyDestination(journey))}</strong>
             <span>${escapeHtml(journey.stop?.station?.name || state.station.name)}</span>
-            <span>${reachableStops.length} arrêt${reachableStops.length > 1 ? "s" : ""} dans la durée</span>
+            <span>${reachableStops.length} arrêt${reachableStops.length > 1 ? "s" : ""} possibles</span>
             ${reportInfo}
           </div>
           <div class="departure-side">
@@ -538,7 +510,7 @@ function resetDraws() {
   elements.trainResult.innerHTML = `
     <span class="result-kicker">Résultat</span>
     <strong>En attente du tirage</strong>
-    <p>Indique d'abord ton temps disponible, puis tire un quai parmi les trains compatibles.</p>
+    <p>Tire un quai parmi les prochains trains compatibles.</p>
   `;
   elements.stopsPreview.textContent = "Sélectionne d'abord un train.";
 }
@@ -565,7 +537,7 @@ async function selectStation(station) {
     if (board.length === 0) {
       setStatus("Gare trouvée, mais aucun train n'est disponible dans les prochains départs.", "warning");
     } else {
-      setStatus("Prêt. Indique ton temps disponible puis tire un quai.");
+      setStatus("Prêt. Tire un quai.");
     }
   } catch (error) {
     setStatus(error.message || "Impossible de charger les départs.", "error");
@@ -575,17 +547,10 @@ async function selectStation(station) {
 }
 
 function drawPlatformAndTrain() {
-  const minutes = getAvailableMinutes();
-  if (!minutes) {
-    setStatus("Indique le temps disponible avant de tirer un trajet.", "warning");
-    elements.durationInput.focus();
-    return;
-  }
-
   refreshDrawableState();
   const platforms = [...state.platforms.keys()];
   if (platforms.length === 0) {
-    setStatus("Aucun train ne permet un trajet dans cette durée.", "warning");
+    setStatus("Aucun train ne permet un trajet depuis cette gare.", "warning");
     return;
   }
 
@@ -593,7 +558,7 @@ function drawPlatformAndTrain() {
   elements.trainResult.innerHTML = `
     <span class="result-kicker">Tirage</span>
     <strong>Les aiguillages tournent...</strong>
-    <p>Choix du quai actif puis d'un train compatible avec ${minutes} min.</p>
+    <p>Choix du quai actif puis d'un train compatible.</p>
   `;
 
   window.setTimeout(() => {
@@ -818,10 +783,6 @@ elements.locateButton.addEventListener("click", useGeolocation);
 elements.locateTopButton.addEventListener("click", useGeolocation);
 elements.drawPlatformButton.addEventListener("click", drawPlatformAndTrain);
 elements.drawStopsButton.addEventListener("click", drawStops);
-elements.durationInput.addEventListener("input", () => {
-  resetDraws();
-  refreshDrawableState();
-});
 
 elements.stationSearch.addEventListener("submit", async (event) => {
   event.preventDefault();

@@ -211,7 +211,6 @@ h2 {
 }
 
 .profile-fields label,
-.duration-control,
 .report-form label {
   display: grid;
   gap: 7px;
@@ -435,10 +434,6 @@ select:focus {
   color: var(--on-dark);
 }
 
-.duration-control {
-  color: #d7d0c8;
-}
-
 .duration-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -450,12 +445,6 @@ select:focus {
   color: inherit;
   font-size: 13px;
   font-weight: 700;
-}
-
-.duration-control small {
-  color: #b8b2aa;
-  font-size: 13px;
-  line-height: 1.35;
 }
 
 .result-board,
