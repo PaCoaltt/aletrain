@@ -25,9 +25,12 @@
           <span class="brand-mark" aria-hidden="true"></span>
           <span>Alétrain</span>
         </a>
-        <button class="icon-button" id="locateTopButton" type="button" aria-label="Me localiser">
-          <span aria-hidden="true">⌖</span>
-        </button>
+        <div class="topbar-actions">
+          <span id="profileName" class="profile-name">Aucun profil</span>
+          <button class="icon-button" id="locateTopButton" type="button" aria-label="Me localiser">
+            <span aria-hidden="true">⌖</span>
+          </button>
+        </div>
       </header>
 
       <main>
@@ -41,7 +44,26 @@
             </p>
           </div>
 
-          <div class="control-panel" aria-label="Controle du tirage">
+          <div class="control-panel" aria-label="Contrôle du tirage">
+            <form class="profile-panel" id="profileForm">
+              <div class="profile-fields">
+                <label>
+                  Profil
+                  <input id="usernameInput" name="username" type="text" placeholder="Nom d'utilisateur" autocomplete="username" />
+                </label>
+                <label>
+                  Mot de passe
+                  <input id="passwordInput" name="password" type="password" placeholder="Mot de passe" autocomplete="current-password" />
+                </label>
+              </div>
+              <div class="profile-actions">
+                <button class="secondary-button" id="createProfileButton" type="button">Créer</button>
+                <button class="secondary-button" id="loginProfileButton" type="submit">Connexion</button>
+                <button class="ghost-button" id="logoutButton" type="button" hidden>Déconnexion</button>
+              </div>
+              <div class="profile-status" id="profileStatus" role="status"></div>
+            </form>
+
             <div class="station-tools">
               <button class="primary-button" id="locateButton" type="button">
                 Utiliser ma position
@@ -67,11 +89,11 @@
           </div>
         </section>
 
-        <section class="map-section" aria-label="Carte centree sur la Suisse">
+        <section class="map-section" aria-label="Carte centrée sur la Suisse">
           <div id="map" class="map"></div>
           <div class="map-card" id="stationCard">
             <span class="small-label">Gare de départ</span>
-            <strong id="stationName">Aucune gare selectionnee</strong>
+            <strong id="stationName">Aucune gare sélectionnée</strong>
             <span id="stationMeta">Les prochains trains apparaîtront ici.</span>
           </div>
         </section>
@@ -85,11 +107,19 @@
               </div>
               <span class="draw-pill" id="platformCount">0 quai</span>
             </div>
+            <label class="duration-control" for="durationInput">
+              Temps disponible
+              <span class="duration-row">
+                <input id="durationInput" name="duration" type="number" min="1" step="1" placeholder="45" inputmode="numeric" />
+                <span>minutes</span>
+              </span>
+              <small id="durationHint">Indique une durée pour activer le tirage.</small>
+            </label>
             <button class="draw-button" id="drawPlatformButton" type="button" disabled>
               Tirer un quai
             </button>
             <div class="result-board" id="trainResult">
-              <span class="result-kicker">Resultat</span>
+              <span class="result-kicker">Résultat</span>
               <strong>En attente du tirage</strong>
               <p>Les quais sont déduits des prochains départs en train disponibles dans la gare.</p>
             </div>
@@ -101,13 +131,13 @@
                 <span class="small-label">Deuxième tirage</span>
                 <h2>Nombre d'arrêts</h2>
               </div>
-              <span class="draw-pill" id="stopCount">0 stop</span>
+              <span class="draw-pill" id="stopCount">0 arrêt</span>
             </div>
             <button class="secondary-button full-width" id="drawStopsButton" type="button" disabled>
               Tirer les arrêts
             </button>
             <div class="stops-preview" id="stopsPreview">
-              Selectionne d'abord un train.
+              Sélectionne d'abord un train.
             </div>
           </div>
         </section>
@@ -125,6 +155,40 @@
         </section>
       </main>
     </div>
+
+    <dialog class="report-modal" id="reportModal">
+      <form class="report-form" id="reportForm" method="dialog">
+        <div class="modal-header">
+          <div>
+            <span class="small-label">Signalement</span>
+            <strong id="reportTitle">Train</strong>
+          </div>
+          <button class="icon-button" id="closeReportModal" type="button" aria-label="Fermer">×</button>
+        </div>
+
+        <label>
+          Cause de la suppression
+          <select id="reportReason" name="reason">
+            <option value="">Non précisée</option>
+            <option value="travaux">Travaux</option>
+            <option value="cause inconnue">Cause inconnue</option>
+            <option value="accident de personnes">Accident de personnes</option>
+            <option value="retard">Retard</option>
+          </select>
+        </label>
+
+        <label>
+          Durée de suppression
+          <span class="duration-row">
+            <input id="reportDuration" name="duration" type="number" min="1" step="1" placeholder="90" inputmode="numeric" />
+            <span>minutes</span>
+          </span>
+        </label>
+
+        <p class="modal-note">Sans durée indiquée, le train est retiré pendant 1 h 30 pour ton profil.</p>
+        <button class="primary-button full-width" type="submit">Signaler le train supprimé</button>
+      </form>
+    </dialog>
 
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"

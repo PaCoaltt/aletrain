@@ -1,0 +1,32 @@
+{
+  "users": [
+    {
+      "username": "pablo",
+      "passwordHash": "dbe71c04d2790e937aabbd4b6941cd4c:ea4926f0b02849e20b64e05f1ba3d5166dffb3b589f136517307f639eee1fcadfef4c1616138fd226d8a840c688eaec6496ed0b281ceeb225a97fa159f6c966e",
+      "createdAt": "2026-05-20T09:45:33.716Z"
+    },
+    {
+      "username": "pablo2",
+      "passwordHash": "ebb3849c975273e3729aabb55595e154:4162d5d6951eb8f80c5b4fb5574cc4c4eb25aa29039f591961cf0a62b221de3ee6ef1c16d3ba4fea6c4e4c9cb5f110ffc71bc03d4ad28202e6d252de8154db54",
+      "createdAt": "2026-05-20T09:48:29.490Z"
+    }
+  ],
+  "reports": [
+    {
+      "trainId": "8504300|S 37|Täuffelen|2026-05-20T12:05:00+0200|11",
+      "reportedBy": "pablo",
+      "reason": "accident de personnes",
+      "durationMinutes": 10,
+      "createdAt": "2026-05-20T09:47:17.806Z",
+      "expiresAt": "2026-05-20T09:57:17.806Z",
+      "trainTitle": "S 37",
+      "destination": "Täuffelen",
+      "departureLabel": "12:05",
+      "stationName": "Biel/Bienne",
+      "confirmations": [],
+      "denials": [
+        "pablo2"
+      ]
+    }
+  ]
+}
