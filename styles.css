@@ -37,7 +37,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -98,6 +99,22 @@ button:disabled {
 
 .brand-mark {
   transform: rotate(45deg);
+}
+
+.topbar-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-name {
+  max-width: 130px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .icon-button {
@@ -181,6 +198,66 @@ h2 {
   border: 1px solid var(--hairline);
 }
 
+.profile-panel {
+  display: grid;
+  gap: 10px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.profile-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.profile-fields label,
+.duration-control,
+.report-form label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.profile-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.profile-actions .secondary-button,
+.profile-actions .ghost-button {
+  flex: 1 1 105px;
+}
+
+.ghost-button {
+  min-height: 44px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--body);
+  font-weight: 650;
+}
+
+.profile-status {
+  min-height: 20px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.profile-status[data-tone="error"],
+.status-line[data-tone="error"] {
+  color: #a12d2d;
+}
+
+.profile-status[data-tone="warning"],
+.status-line[data-tone="warning"] {
+  color: #8a5a1f;
+}
+
 .station-tools {
   display: grid;
   gap: 14px;
@@ -214,7 +291,19 @@ input {
   outline: none;
 }
 
-input:focus {
+select {
+  min-width: 0;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 8px;
+  background: var(--canvas);
+  color: var(--ink);
+  outline: none;
+}
+
+input:focus,
+select:focus {
   border-color: var(--primary);
   box-shadow: 0 0 0 3px rgba(204, 120, 92, 0.15);
 }
@@ -346,6 +435,29 @@ input:focus {
   color: var(--on-dark);
 }
 
+.duration-control {
+  color: #d7d0c8;
+}
+
+.duration-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.duration-row span {
+  color: inherit;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.duration-control small {
+  color: #b8b2aa;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
 .result-board,
 .stops-preview {
   min-height: 124px;
@@ -450,9 +562,9 @@ input:focus {
 
 .departure-item {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 12px;
-  align-items: center;
+  align-items: start;
   padding: 12px;
 }
 
@@ -490,10 +602,75 @@ input:focus {
   font-size: 13px;
 }
 
+.departure-side {
+  display: grid;
+  justify-items: end;
+  gap: 8px;
+}
+
 .departure-time {
   color: var(--body);
   font-weight: 750;
   font-variant-numeric: tabular-nums;
+}
+
+.report-button {
+  display: inline-grid;
+  min-width: 32px;
+  min-height: 32px;
+  place-items: center;
+  border: 1px solid rgba(204, 120, 92, 0.35);
+  border-radius: 999px;
+  background: #fff7f1;
+  color: var(--primary-active);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.inline-report {
+  display: inline-flex;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.departure-item.is-reported {
+  background: #ebe9e5;
+  color: var(--muted);
+}
+
+.departure-item.is-reported .platform-badge {
+  background: var(--muted);
+}
+
+.report-info {
+  display: grid;
+  gap: 7px;
+  margin-top: 8px;
+  padding: 9px;
+  border-radius: 8px;
+  background: rgba(20, 20, 19, 0.06);
+  color: var(--body);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.report-actions button {
+  min-height: 30px;
+  padding: 0 9px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .empty-state {
@@ -683,6 +860,47 @@ input:focus {
   white-space: nowrap;
 }
 
+.report-modal {
+  width: min(440px, calc(100vw - 28px));
+  padding: 0;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--surface-card);
+  color: var(--ink);
+  box-shadow: 0 24px 70px rgba(20, 20, 19, 0.28);
+}
+
+.report-modal::backdrop {
+  background: rgba(20, 20, 19, 0.42);
+}
+
+.report-form {
+  display: grid;
+  gap: 16px;
+  padding: 18px;
+}
+
+.modal-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.modal-header strong {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+  line-height: 1.25;
+}
+
+.modal-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 @media (min-width: 760px) {
   .topbar {
     padding: 0 28px;
@@ -726,6 +944,10 @@ input:focus {
   .departures-section,
   .control-panel {
     padding: 20px;
+  }
+
+  .profile-fields {
+    grid-template-columns: 1fr 1fr;
   }
 
   .departure-list {
