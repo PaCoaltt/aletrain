@@ -1,6 +1,9 @@
 # Alétrain
 Un HTML simple permettant de voyager de manière aléatoire en Suisse grâce à un tirage au sort du quai, du train et de l'arrêt de sortie. 
 
+https://aletrain.lupachat.ch
+
+
 ## Lancer avec Docker
 
 ```bash
