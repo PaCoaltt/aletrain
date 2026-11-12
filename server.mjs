@@ -3,6 +3,9 @@ import { readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { extname, join, resolve } from "node:path";
+import { getRailRoute, validatePoints } from "./rail-route.mjs";
+import { getActivities } from "./activities.mjs";
+import { validActivityLocation } from "./activities-common.js";
 
 const root = resolve(".");
 const port = Number(process.env.PORT || 4173);
@@ -163,6 +166,36 @@ async function syncTelegramReplies(data) {
 }
 
 async function handleApi(request, response, url) {
+  if (request.method === "POST" && url.pathname === "/api/activities") {
+    const body = await readRequestJson(request);
+    if (!validActivityLocation(body.location)) {
+      sendJson(response, 400, { error: "Coordonnées d'arrivée invalides." });
+      return;
+    }
+    try {
+      sendJson(response, 200, { activities: await getActivities(body.location), source: "OpenStreetMap" });
+    } catch (error) {
+      console.warn("Activities:", error.message);
+      sendJson(response, 503, { error: "Les idées de sortie sont indisponibles pour le moment. Réessaie dans un instant." });
+    }
+    return;
+  }
+  if (request.method === "POST" && url.pathname === "/api/rail-route") {
+    const body = await readRequestJson(request);
+    try {
+      validatePoints(body.points);
+    } catch (error) {
+      sendJson(response, 400, { error: error.message });
+      return;
+    }
+    try {
+      sendJson(response, 200, await getRailRoute(body.points));
+    } catch (error) {
+      console.warn("Rail routing:", error.message);
+      sendJson(response, 503, { error: "Tracé ferroviaire indisponible pour le moment." });
+    }
+    return;
+  }
   if (request.method === "POST" && url.pathname === "/api/profiles") {
     const body = await readRequestJson(request);
     const username = normalizeUsername(body.username);

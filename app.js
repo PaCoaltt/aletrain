@@ -1,11 +1,14 @@
 const API_ROOT = "https://transport.opendata.ch/v1";
 const SWISS_CENTER = [46.8182, 8.2275];
+const railRouteRequests = new Map();
 
 const state = {
   map: null,
   markers: [],
   routeLayer: null,
   exitMarker: null,
+  activityMarker: null,
+  drawTimer: null,
   station: null,
   stationboard: [],
   platforms: new Map(),
@@ -40,6 +43,7 @@ const elements = {
   profileStatus: document.querySelector("#profileStatus"),
   profileName: document.querySelector("#profileName"),
   durationInput: document.querySelector("#durationInput"),
+  waitInput: document.querySelector("#waitInput"),
   durationHint: document.querySelector("#durationHint"),
   reportModal: document.querySelector("#reportModal"),
   reportForm: document.querySelector("#reportForm"),
@@ -52,7 +56,7 @@ const elements = {
 function initMap() {
   state.map = L.map("map", {
     zoomControl: false,
-    scrollWheelZoom: true,
+    scrollWheelZoom: false,
   }).setView(SWISS_CENTER, 8);
 
   L.control.zoom({ position: "bottomright" }).addTo(state.map);
@@ -140,6 +144,11 @@ function getAvailableMinutes() {
   return Number.isFinite(minutes) && minutes > 0 ? minutes : null;
 }
 
+function getWaitMinutes() {
+  const minutes = Number(elements.waitInput.value);
+  return Number.isInteger(minutes) && minutes > 0 ? minutes : null;
+}
+
 function travelMinutesToStop(journey, stop) {
   const departure = new Date(journeyDeparture(journey)).getTime();
   const arrival = new Date(stop.arrival || stop.departure || "").getTime();
@@ -216,8 +225,8 @@ function updateMap(station, journeys = []) {
 
     const marker = L.circleMarker(coords, {
       radius: 5,
-      color: "#cc785c",
-      fillColor: "#cc785c",
+      color: "#b93224",
+      fillColor: "#b93224",
       fillOpacity: 0.68,
       weight: 1,
     }).addTo(state.map);
@@ -226,9 +235,12 @@ function updateMap(station, journeys = []) {
   });
 }
 
-function getRoutePoints(journey) {
+function getRoutePoints(journey, exitStop = null) {
   const stationCoords = getStationCoordinates(state.station);
-  const routeStops = getRemainingStops(journey)
+  const reachableStops = getReachableStops(journey);
+  const exitIndex = exitStop ? reachableStops.indexOf(exitStop) : -1;
+  const visibleStops = exitIndex >= 0 ? reachableStops.slice(0, exitIndex + 1) : reachableStops;
+  const routeStops = visibleStops
     .map((stop) => ({
       name: stop.station.name,
       coords: getStationCoordinates(stop.station),
@@ -248,28 +260,41 @@ function getRoutePoints(journey) {
   ];
 }
 
-function drawJourneyRoute(journey, exitStop = null) {
+async function drawJourneyRoute(journey, exitStop = null) {
   clearRoute();
+  clearMarkers();
 
-  const routePoints = getRoutePoints(journey);
+  const routePoints = getRoutePoints(journey, exitStop);
   if (routePoints.length < 2) return;
 
   const latLngs = routePoints.map((point) => point.coords);
 
   state.routeLayer = L.layerGroup().addTo(state.map);
 
-  L.polyline(latLngs, {
-    color: "#cc2f2f",
+  L.circleMarker(routePoints[0].coords, {
+    radius: 7,
+    color: "#fff",
+    fillColor: "#b93224",
+    fillOpacity: 1,
+    weight: 2,
+  })
+    .bindPopup(`<strong>${escapeHtml(routePoints[0].name)}</strong><br>Gare de départ`)
+    .addTo(state.routeLayer);
+
+  const routeLine = L.polyline(latLngs, {
+    color: "#b93224",
     weight: 6,
     opacity: 0.92,
     lineCap: "round",
     lineJoin: "round",
+    dashArray: "6 8",
   }).addTo(state.routeLayer);
+  const activeLayer = state.routeLayer;
 
   routePoints.slice(1).forEach((point) => {
     L.circleMarker(point.coords, {
       radius: 5,
-      color: "#cc2f2f",
+      color: "#b93224",
       fillColor: "#faf9f5",
       fillOpacity: 1,
       weight: 2,
@@ -296,11 +321,54 @@ function drawJourneyRoute(journey, exitStop = null) {
   }
 
   const bounds = L.latLngBounds(latLngs);
+  state.map.invalidateSize();
   state.map.fitBounds(bounds, {
-    paddingTopLeft: [24, 90],
-    paddingBottomRight: [24, 36],
+    paddingTopLeft: [64, 64],
+    paddingBottomRight: [64, 36],
     maxZoom: 12,
   });
+
+  const routeSummary = document.querySelector("#routeSummary");
+  routeSummary.hidden = false;
+  const title = `${routePoints[0].name} → ${routePoints.at(-1).name}`;
+  routeSummary.textContent = `${title} · Chargement du tracé ferroviaire…`;
+  try {
+    // Fetch the complete possible route once; a new exit only trims its legs.
+    const points = getRoutePoints(journey).map(point => point.coords);
+    const key = JSON.stringify(points);
+    if (!railRouteRequests.has(key)) {
+      if (railRouteRequests.size >= 12) railRouteRequests.delete(railRouteRequests.keys().next().value);
+      const request = fetchLocalApi("/api/rail-route", {
+        method: "POST",
+        body: JSON.stringify({ points }),
+        signal: AbortSignal.timeout(35000),
+      }).catch(error => {
+        railRouteRequests.delete(key);
+        throw error;
+      });
+      railRouteRequests.set(key, request);
+    }
+    const data = await railRouteRequests.get(key);
+    if (state.routeLayer !== activeLayer) return;
+    const lines = data.lines?.slice(0, routePoints.length - 1);
+    if (!lines || lines.length !== routePoints.length - 1 || lines.some(line =>
+      !Array.isArray(line) || line.length < 2 || line.some(point =>
+        !Array.isArray(point) || point.length !== 2 || !point.every(Number.isFinite)))) {
+      railRouteRequests.delete(key);
+      throw new Error("Tracé incomplet.");
+    }
+    routeLine.setLatLngs(lines);
+    routeLine.setStyle({ dashArray: null });
+    const fittedBounds = routeLine.getBounds().extend(L.latLngBounds(latLngs));
+    if (state.activityMarker) fittedBounds.extend(state.activityMarker.getLatLng());
+    state.map.fitBounds(fittedBounds, {
+      paddingTopLeft: [64, 64], paddingBottomRight: [64, 36], maxZoom: 12,
+    });
+    routeSummary.textContent = `${title} · Sur les voies, parcours estimé`;
+  } catch {
+    if (state.routeLayer !== activeLayer) return;
+    routeSummary.textContent = `${title} · Tracé simplifié, voies indisponibles`;
+  }
 }
 
 async function fetchJson(path, params) {
@@ -418,11 +486,16 @@ function getReachableStops(journey) {
 
 function getDrawableJourneys() {
   const minutes = getAvailableMinutes();
-  if (!minutes) return [];
+  const waitMinutes = getWaitMinutes();
+  if (!minutes || !waitMinutes) return [];
+  const now = Date.now();
+  const latestDeparture = now + waitMinutes * 60000;
 
   return state.stationboard.filter((journey) => {
     const platform = String(journey.stop?.platform || journey.stop?.prognosis?.platform || "").trim();
-    return platform && !isTrainBlockedFromDraw(journey) && getReachableStops(journey).length > 0;
+    const departure = new Date(journey.stop?.prognosis?.departure || journeyDeparture(journey)).getTime();
+    return platform && departure >= now && departure <= latestDeparture &&
+      !isTrainBlockedFromDraw(journey) && getReachableStops(journey).length > 0;
   });
 }
 
@@ -448,7 +521,7 @@ function refreshDrawableState() {
 function renderProfile() {
   const username = currentUsername();
   document.body.classList.toggle("has-profile", Boolean(username));
-  elements.profileName.textContent = username ? `Connecté: ${username}` : "Aucun profil";
+  elements.profileName.textContent = username || "Mon profil";
   elements.logoutButton.hidden = !username;
 
   if (username) {
@@ -463,17 +536,22 @@ function renderStation() {
   const platformTotal = state.platforms.size;
   const trainTotal = state.stationboard.filter((journey) => !isTrainHiddenForCurrentUser(journey)).length;
   const minutes = getAvailableMinutes();
+  const waitMinutes = getWaitMinutes();
 
-  elements.stationName.textContent = state.station?.name || "Aucune gare sélectionnée";
+  elements.stationName.textContent = state.station?.name || "Choisis ta gare de départ";
   elements.stationMeta.textContent =
-    trainTotal > 0
-      ? `${trainTotal} prochains trains visibles, ${platformTotal} quai${platformTotal > 1 ? "s" : ""} compatibles avec ${minutes || "la durée indiquée"} min.`
+    !state.station
+      ? "Choisis une gare pour voir les prochains trains."
+      : trainTotal > 0
+      ? `${trainTotal} prochains trains visibles · ${platformTotal} quai${platformTotal > 1 ? "s" : ""} compatibles avec tes critères.`
       : "Aucun prochain départ en train n'a été trouvé.";
   elements.platformCount.textContent = `${platformTotal} quai${platformTotal > 1 ? "s" : ""}`;
   elements.drawPlatformButton.disabled = platformTotal === 0;
-  elements.durationHint.textContent = minutes
-    ? `${platformTotal} quai${platformTotal > 1 ? "s" : ""} possible${platformTotal > 1 ? "s" : ""} pour ${minutes} min.`
-    : "Indique une durée pour activer le tirage.";
+  elements.durationHint.textContent = !waitMinutes
+    ? "Indique une attente maximale d'au moins 1 minute."
+    : minutes
+      ? `${platformTotal} quai${platformTotal > 1 ? "s" : ""} possible${platformTotal > 1 ? "s" : ""} · trajet ≤ ${minutes} min · attente ≤ ${waitMinutes} min.`
+      : "Indique une durée pour activer le tirage.";
 }
 
 function renderDepartures() {
@@ -481,7 +559,7 @@ function renderDepartures() {
   if (journeys.length === 0) {
     elements.departureList.innerHTML = `
       <article class="empty-state">
-        Aucun train avec quai n'est disponible pour cette gare dans les prochains départs.
+        ${state.station ? "Aucun train n'est disponible dans les prochains départs de cette gare." : "Choisis une gare pour découvrir les prochains départs."}
       </article>
     `;
     return;
@@ -531,13 +609,18 @@ function renderDepartures() {
 }
 
 function resetDraws() {
+  window.clearTimeout(state.drawTimer);
+  elements.drawPlatformButton.classList.remove("is-spinning");
+  window.dispatchEvent(new CustomEvent("aletrain:destination", { detail: null }));
+  clearRoute();
+  document.querySelector("#routeSummary").hidden = true;
   state.selectedJourney = null;
   state.selectedPlatform = null;
   elements.drawStopsButton.disabled = true;
   elements.stopCount.textContent = "0 arrêt";
   elements.trainResult.innerHTML = `
     <span class="result-kicker">Résultat</span>
-    <strong>En attente du tirage</strong>
+    <strong>Aucun train tiré au sort</strong>
     <p>Indique d'abord ton temps disponible, puis tire un quai parmi les trains compatibles.</p>
   `;
   elements.stopsPreview.textContent = "Sélectionne d'abord un train.";
@@ -585,10 +668,12 @@ function drawPlatformAndTrain() {
   refreshDrawableState();
   const platforms = [...state.platforms.keys()];
   if (platforms.length === 0) {
-    setStatus("Aucun train ne permet un trajet dans cette durée.", "warning");
+    setStatus("Aucun train ne respecte ces durées de trajet et d'attente. Essaie de les augmenter.", "warning");
     return;
   }
 
+  resetDraws();
+  elements.drawPlatformButton.disabled = true;
   elements.drawPlatformButton.classList.add("is-spinning");
   elements.trainResult.innerHTML = `
     <span class="result-kicker">Tirage</span>
@@ -596,7 +681,7 @@ function drawPlatformAndTrain() {
     <p>Choix du quai actif puis d'un train compatible avec ${minutes} min.</p>
   `;
 
-  window.setTimeout(() => {
+  state.drawTimer = window.setTimeout(() => {
     const platform = randomItem(platforms);
     const platformJourneys = [...state.platforms.get(platform)].sort((a, b) =>
       (journeyDeparture(a) || "").localeCompare(journeyDeparture(b) || ""),
@@ -606,6 +691,7 @@ function drawPlatformAndTrain() {
     state.selectedPlatform = platform;
     state.selectedJourney = journey;
     elements.drawPlatformButton.classList.remove("is-spinning");
+    refreshDrawableState();
     elements.drawStopsButton.disabled = false;
 
     const reachableStops = getReachableStops(journey);
@@ -618,6 +704,7 @@ function drawPlatformAndTrain() {
         <span class="train-chip">${reachableStops.length} arrêts possibles</span>
         <button class="report-button inline-report" type="button" data-action="open-report" data-train-id="${escapeHtml(journeyId(journey))}">Signaler supprimé</button>
       </div>
+      <a class="map-link" href="#journeyMap">Voir le trajet sur la carte <span aria-hidden="true">↗</span></a>
     `;
     elements.stopsPreview.textContent = "Le train est choisi. Tire maintenant le nombre d'arrêts.";
     updateMap(state.station, [journey]);
@@ -668,10 +755,27 @@ function drawStops() {
           : ""
       }
     </ol>
+    <a class="map-link" href="#journeyMap">Voir mon trajet sur la carte <span aria-hidden="true">↗</span></a>
   `;
 
+  window.dispatchEvent(new CustomEvent("aletrain:destination", {
+    detail: { name: destinationStop.station.name, coords: getStationCoordinates(destinationStop.station) },
+  }));
   drawJourneyRoute(state.selectedJourney, destinationStop);
 }
+
+window.addEventListener("aletrain:activity-selected", event => {
+  state.activityMarker?.remove();
+  state.activityMarker = null;
+  const place = event.detail;
+  if (!place || !state.map) return;
+  state.activityMarker = L.marker(place.coords, {
+    icon: L.divIcon({ className: "activity-marker", html: "<span aria-hidden=\"true\">↗</span>", iconSize: [30, 30], iconAnchor: [15, 15] }),
+  }).bindPopup(`<strong>${escapeHtml(place.name)}</strong><br>Ton idée sur place`).addTo(state.map);
+  const routeLine = state.routeLayer?.getLayers().find(layer => layer instanceof L.Polyline);
+  const bounds = routeLine ? routeLine.getBounds() : L.latLngBounds([place.coords]);
+  state.map.fitBounds(bounds.extend(place.coords), { padding: [48, 48], maxZoom: 14 });
+});
 
 function findJourneyById(trainId) {
   return state.stationboard.find((journey) => journeyId(journey) === trainId);
@@ -680,6 +784,7 @@ function findJourneyById(trainId) {
 function openReportModal(trainId) {
   if (!currentUsername()) {
     setProfileStatus("Connecte ou crée un profil avant de signaler un train.", "warning");
+    document.querySelector("#profileModal").showModal();
     elements.usernameInput.focus();
     return;
   }
@@ -815,10 +920,17 @@ function useGeolocation() {
 }
 
 elements.locateButton.addEventListener("click", useGeolocation);
+const profileModal = document.querySelector("#profileModal");
+document.querySelector("#openProfileButton").addEventListener("click", () => profileModal.showModal());
+document.querySelector("#closeProfileModal").addEventListener("click", () => profileModal.close());
 elements.locateTopButton.addEventListener("click", useGeolocation);
 elements.drawPlatformButton.addEventListener("click", drawPlatformAndTrain);
 elements.drawStopsButton.addEventListener("click", drawStops);
 elements.durationInput.addEventListener("input", () => {
+  resetDraws();
+  refreshDrawableState();
+});
+elements.waitInput.addEventListener("input", () => {
   resetDraws();
   refreshDrawableState();
 });
