@@ -3,6 +3,25 @@ Un HTML simple permettant de voyager de manière aléatoire en Suisse grâce à 
 
 https://aletrain.lupachat.ch
 
+## Langues et actualisation
+
+L'interface est disponible en français, allemand, italien et anglais. La langue
+du navigateur est détectée à la première visite ; le sélecteur dans l'en-tête
+permet de changer immédiatement de langue et conserve la préférence si possible.
+Les traductions se trouvent dans `locales/{fr,de,it,en}.js`, avec fallback français.
+
+Les horaires sont **partiellement actualisés** : les prévisions et retards sont
+affichés lorsqu'ils sont fournis ; leur absence reste explicitement signalée.
+Les départs sont rafraîchis toutes les 30 secondes quand la page est visible,
+ainsi qu'au tirage. Les données anciennes sont signalées après un échec.
+Le retour reste une vérification ponctuelle au tirage de l'arrêt.
+
+Voir le [rapport d'audit détaillé](docs/timetable-audit.md) pour les champs,
+la couverture, les réponses réellement observées et les limites du fournisseur.
+
+Validation : `npm test` puis `npm run build`. L'application utilise des modules
+natifs sans bundler ; le build vérifie les fichiers de production et les traductions.
+
 ## Départs, aventures et retour
 
 Les horaires viennent de `https://transport.opendata.ch/v1`, qui réutilise les

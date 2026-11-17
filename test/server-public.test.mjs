@@ -39,7 +39,7 @@ test('HTTP counts visits, serves cached public assets and keeps private files in
     const html = await home.text();
     assert.match(html, /id="visitCount"[^>]*>1 visites<\/span>/);
     assert.doesNotMatch(html, /id="visitCount"[^>]*\bhidden\b|profileModal|reportModal|openProfileButton/);
-    assert.match(html, /visit-counter.js\?v=3/);
+    assert.match(html, /visit-counter.js\?v=4/);
     assert.equal(home.headers.get('cache-control'), 'no-store');
     for (const path of ['/api/profiles', '/api/sessions', '/api/reports', '/api/reports/example/confirm', '/api/telegram/webhook']) {
       for (const method of ['GET', 'POST']) assert.equal((await request(path, { method })).status, 404, `${method} ${path}`);
@@ -47,7 +47,7 @@ test('HTTP counts visits, serves cached public assets and keeps private files in
     for (const path of ['/data.json', '/visits.json', '/server.mjs', '/.git/config', '/README.md']) {
       assert.equal((await request(path)).status, 404, path);
     }
-    for (const path of ['/', '/app.js', '/visit-counter.js', '/adventure.js', '/activity-ui.js', '/activities-common.js', '/styles.css', '/vendor/leaflet/leaflet.js']) {
+    for (const path of ['/', '/app.js', '/visit-counter.js', '/i18n.js', '/locales/fr.js', '/locales/de.js', '/locales/it.js', '/locales/en.js', '/adventure.js', '/activity-ui.js', '/activities-common.js', '/styles.css', '/vendor/leaflet/leaflet.js']) {
       const response = await request(path);
       assert.equal(response.status, 200, path);
       assert.ok(response.headers.get('cache-control'));

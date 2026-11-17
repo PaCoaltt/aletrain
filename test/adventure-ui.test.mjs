@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as adventure from '../adventure.js';
+import * as i18n from '../i18n.js';
 
 async function appFixture({ failBoard = false, lateReturn = false } = {}) {
   const nodes = new Map();
@@ -36,16 +37,16 @@ async function appFixture({ failBoard = false, lateReturn = false } = {}) {
     }] }) };
     throw new Error(`Unexpected API call: ${url.pathname}`);
   };
-  const context = vm.createContext({ ...adventure, URL, AbortSignal, Date, Intl, Map, Set, fetch,
+  const context = vm.createContext({ ...i18n, ...adventure, URL, AbortSignal, Date, Intl, Map, Set, fetch,
     localStorage: { getItem: () => { throw new Error('Legacy account storage must not be read'); } },
     document: { querySelector: node, body: node('body'), addEventListener() {} },
-    window: { addEventListener() {}, clearTimeout() {}, dispatchEvent: event => events.push(event) },
+    window: { addEventListener() {}, setInterval() {}, clearTimeout() {}, dispatchEvent: event => events.push(event) },
     CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
   });
   const source = (await readFile(new URL('../app.js', import.meta.url), 'utf8'))
-    .replace(/^import .*\r?\n/, '').replace(/\ninitMap\(\);/, '\n');
+    .replace(/^import .*\r?\n/gm, '').replace(/\ninitMap\(\);/, '\n');
   vm.runInContext(`${source}\nupdateMap = () => {}; drawJourneyRoute = () => {};\n` +
-    'globalThis.app = { state, drawPlatformAndTrain, drawStops, resetDraws };', context);
+    'globalThis.app = { state, drawPlatformAndTrain, drawStops, resetDraws, refreshBoard, contextDocument: document };', context);
   node('#durationInput').value = '60';
   node('#waitInput').value = '45';
   node('#adventureInput').value = 'all';
@@ -61,7 +62,7 @@ test('draw refreshes departures, selects the updated platform and confirms a fea
   await app.drawPlatformAndTrain();
   assert.equal(app.state.selectedPlatform, '3');
   assert.equal(app.state.selectedJourney.cancelled, undefined);
-  assert.match(app.node('#trainResult').innerHTML, /Prévision actualisée/);
+  assert.match(app.node('#trainResult').innerHTML, /Prévision reçue/);
   assert.deepEqual(app.calls.find(url => url.pathname.endsWith('stationboard')).searchParams.getAll('transportations[]'), adventure.ADVENTURES.all);
   await app.drawStops();
   assert.match(app.node('#stopsPreview').innerHTML, /Retour vers Lausanne/);
@@ -90,4 +91,31 @@ test('expired departure data requires a new transport draw', async () => {
   assert.equal(app.state.selectedJourney, null);
   assert.equal(app.calls.filter(url => url.pathname.endsWith('connections')).length, 0);
   assert.match(app.node('#statusLine').textContent, /revérifiés/);
+});
+
+test('background refresh preserves an unchanged draw and invalidates changed or cancelled services', async () => {
+  const app = await appFixture();
+  await app.drawPlatformAndTrain();
+  await app.refreshBoard();
+  assert.equal(app.state.selectedPlatform, '3');
+  assert.equal(app.state.refreshFailed, false);
+  // The next supplier response now carries a new platform.
+  app.journey.stop.prognosis = { ...app.journey.stop.prognosis, platform: '9' };
+  // Keep an independent snapshot of the previous selected response.
+  app.state.selectedJourney = { ...app.journey, stop: { ...app.journey.stop, prognosis: { ...app.journey.stop.prognosis, platform: '3' } } };
+  await app.refreshBoard();
+  assert.equal(app.state.selectedJourney, null);
+  assert.equal(app.node('#drawStopsButton').disabled, true);
+  assert.match(app.node('#statusLine').textContent, /revérifiés/);
+});
+
+test('refresh skips hidden pages and prevents stale stop draws after an API failure', async () => {
+  const hidden = await appFixture();
+  hidden.contextDocument.hidden = true;
+  await hidden.refreshBoard();
+  assert.equal(hidden.calls.length, 0);
+  const offline = await appFixture({ failBoard: true });
+  await offline.refreshBoard();
+  assert.equal(offline.state.refreshFailed, true);
+  assert.equal(offline.node('#drawStopsButton').disabled, true);
 });

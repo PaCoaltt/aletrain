@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ADVENTURES, platformFor, stopTime, usableReturn, swissDateTime, swissTimestamp } from '../adventure.js';
+import { ADVENTURES, platformFor, stopTime, usableReturn, swissDateTime, swissTimestamp, delayMinutes, hasPrediction, cancelled } from '../adventure.js';
 import { createVisitCounter } from '../visits.mjs';
 import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -13,6 +13,21 @@ test('real-time departure and platform override the timetable', () => {
   assert.equal(platformFor({ stop }), '3');
   assert.equal(platformFor({ stop: { platform: '1' } }), '1');
   assert.deepEqual(ADVENTURES.all, ['train', 'tram', 'ship', 'bus', 'cableway']);
+});
+
+test('scheduled time alone never implies live data or zero delay; explicit predictions are validated', () => {
+  const planned = { departure: '2026-11-17T19:27:00+0100', delay: null };
+  assert.equal(hasPrediction(planned), false);
+  assert.equal(delayMinutes(planned), null);
+  assert.equal(hasPrediction({ ...planned, delay: 0 }), true);
+  assert.equal(delayMinutes({ ...planned, delay: 2 }), 2);
+  assert.equal(delayMinutes({ ...planned, prognosis: { departure: '2026-11-17T19:29:00+0100' } }), 2);
+  assert.equal(hasPrediction({ ...planned, prognosis: { departure: 'invalid' } }), false);
+  assert.equal(stopTime({ ...planned, prognosis: { departure: 'invalid' } }), planned.departure);
+  assert.equal(platformFor({ stop: { prognosis: { platform: null } } }), '');
+  assert.equal(cancelled({ stop: { cancelled: true } }), true);
+  assert.equal(cancelled({ canceled: true }), true);
+  assert.equal(cancelled({}), false);
 });
 
 test('return must leave after the visit and arrive before the deadline, including delays', () => {

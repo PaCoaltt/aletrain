@@ -1,11 +1,13 @@
+import { setText } from './i18n.js';
 // Independent of the map and adventure modules: their loading cannot hide visits.
 (async () => {
   const counter = document.querySelector('#visitCount');
   if (!counter) return;
   const display = data => {
     if (!Number.isSafeInteger(data.visits) || data.visits < 0) throw new Error('Invalid visits');
-    counter.textContent = `${new Intl.NumberFormat('fr-CH').format(data.visits)} visites`;
+    setText(counter, 'visits.other', { count: data.visits });
   };
+  if (counter.dataset.visits !== undefined) display({ visits: Number(counter.dataset.visits) });
   try {
     const response = await fetch('/api/visits', {
       method: 'POST', headers: { 'X-Aletrain-Visit': '1' },
@@ -20,7 +22,7 @@
       display(await response.json());
     } catch {
       // Keep the number rendered by Node. For a static/old server, show a clear fallback.
-      if (!/\d/.test(counter.textContent)) counter.textContent = 'Compteur indisponible';
+      if (!/\d/.test(counter.textContent)) setText(counter, 'visit.unavailable');
     }
   }
 })();

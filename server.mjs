@@ -15,7 +15,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
     catch (error) { console.error('Visits:', error.message); process.exit(1); }
   });
 }
-const publicFiles = new Set(['index.html', 'styles.css', 'app.js', 'visit-counter.js', 'adventure.js', 'activity-ui.js', 'activities-common.js',
+const publicFiles = new Set(['index.html', 'styles.css', 'app.js', 'i18n.js', 'locales/fr.js', 'locales/de.js', 'locales/it.js', 'locales/en.js', 'visit-counter.js', 'adventure.js', 'activity-ui.js', 'activities-common.js',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css',
   'vendor/leaflet/images/layers.png', 'vendor/leaflet/images/layers-2x.png',
   'vendor/leaflet/images/marker-icon.png', 'vendor/leaflet/images/marker-icon-2x.png', 'vendor/leaflet/images/marker-shadow.png']);
@@ -117,7 +117,9 @@ createServer(async (request, response) => {
     if (!staticCache.has(requestedPath)) staticCache.set(requestedPath, await readFile(filePath));
     const cachedBody = staticCache.get(requestedPath);
     const body = requestedPath === 'index.html'
-      ? Buffer.from(cachedBody.toString('utf8').replace('<!--visits-->Visites : ...', new Intl.NumberFormat('fr-CH').format(visits.count()) + ' visites'))
+      ? Buffer.from(cachedBody.toString('utf8')
+        .replace('id="visitCount"', `id="visitCount" data-visits="${visits.count()}"`)
+        .replace('<!--visits-->Visites : ...', new Intl.NumberFormat('fr-CH').format(visits.count()) + ' visites'))
       : cachedBody;
     response.writeHead(200, {
       "Content-Type": types[extname(filePath)] || "application/octet-stream",

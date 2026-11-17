@@ -6,7 +6,20 @@ export const ADVENTURES = {
 };
 
 export function stopTime(stop, kind = 'departure') {
-  return stop?.prognosis?.[kind] || stop?.[kind] || null;
+  const predicted = stop?.prognosis?.[kind];
+  return Number.isFinite(Date.parse(predicted)) ? predicted : stop?.[kind] || null;
+}
+
+export function delayMinutes(stop, kind = 'departure') {
+  if (typeof stop?.delay === 'number' && Number.isFinite(stop.delay)) return stop.delay;
+  const planned = Date.parse(stop?.[kind]);
+  const predicted = Date.parse(stop?.prognosis?.[kind]);
+  return Number.isFinite(planned) && Number.isFinite(predicted) ? (predicted - planned) / 60000 : null;
+}
+
+export function hasPrediction(stop, kind = 'departure') {
+  return Number.isFinite(Date.parse(stop?.prognosis?.[kind])) ||
+    (typeof stop?.delay === 'number' && Number.isFinite(stop.delay));
 }
 
 export function platformFor(journey) {

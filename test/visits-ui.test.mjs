@@ -2,13 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
+import { setText } from '../i18n.js';
 
-const source = await readFile(new URL('../visit-counter.js', import.meta.url), 'utf8');
+const source = (await readFile(new URL('../visit-counter.js', import.meta.url), 'utf8')).replace(/^import .*\r?\n/gm, '');
 
 test('visit counter updates without loading the adventure app or map', async () => {
-  const counter = { textContent: '0 visites' };
+  const counter = { textContent: '0 visites', dataset: {} };
   const calls = [];
-  await vm.runInNewContext(source, { Intl, AbortSignal,
+  await vm.runInNewContext(source, { Intl, AbortSignal, setText,
     document: { querySelector: () => counter },
     fetch: async (url, options) => {
       calls.push([url, options.method]);
@@ -21,9 +22,9 @@ test('visit counter updates without loading the adventure app or map', async () 
 
 test('blocked visit POST falls back to GET; unavailable API retains the server count', async () => {
   for (const getWorks of [true, false]) {
-    const counter = { textContent: '7 visites' };
+    const counter = { textContent: '7 visites', dataset: {} };
     let calls = 0;
-    await vm.runInNewContext(source, { Intl, AbortSignal,
+    await vm.runInNewContext(source, { Intl, AbortSignal, setText,
       document: { querySelector: () => counter },
       fetch: async () => ({ ok: ++calls === 2 && getWorks, json: async () => ({ visits: 8 }) }),
     });
@@ -33,8 +34,8 @@ test('blocked visit POST falls back to GET; unavailable API retains the server c
 });
 
 test('a static page with no working counter service gets an explicit fallback', async () => {
-  const counter = { textContent: 'Visites : ...' };
-  await vm.runInNewContext(source, { Intl, AbortSignal,
+  const counter = { textContent: 'Visites : ...', dataset: {} };
+  await vm.runInNewContext(source, { Intl, AbortSignal, setText,
     document: { querySelector: () => counter }, fetch: async () => { throw new Error('Offline'); },
   });
   assert.equal(counter.textContent, 'Compteur indisponible');

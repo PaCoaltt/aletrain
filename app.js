@@ -1,4 +1,5 @@
-import { ADVENTURES, stopTime, platformFor, cancelled, usableReturn, swissDateTime, swissTimestamp } from './adventure.js';
+import { t, tx, px, setText, setHtml, formatDate, dateHtml, applyTranslations } from './i18n.js';
+import { ADVENTURES, stopTime, platformFor, cancelled, usableReturn, swissDateTime, swissTimestamp, delayMinutes, hasPrediction } from './adventure.js';
 const API_ROOT = "https://transport.opendata.ch/v1";
 const SWISS_CENTER = [46.8182, 8.2275];
 const railRouteRequests = new Map();
@@ -18,6 +19,9 @@ const state = {
   revision: 0,
   busy: false,
   boardLoadedAt: 0,
+  loading: false,
+  refreshing: false,
+  refreshFailed: false,
 };
 
 const elements = {
@@ -49,7 +53,17 @@ function initMap() {
     scrollWheelZoom: false,
   }).setView(SWISS_CENTER, 8);
 
-  L.control.zoom({ position: "bottomright" }).addTo(state.map);
+  L.control.zoom({ position: "bottomright", zoomInTitle: t('zoomIn'), zoomOutTitle: t('zoomOut') }).addTo(state.map);
+  const translateMapControls = () => {
+    for (const [selector, key] of [['.leaflet-control-zoom-in', 'zoomIn'], ['.leaflet-control-zoom-out', 'zoomOut'], ['.leaflet-popup-close-button', 'closePopup']]) {
+      const control = document.querySelector(selector);
+      if (control) { control.title = t(key); control.setAttribute('aria-label', t(key)); }
+    }
+    applyTranslations();
+  };
+  state.map.on('popupopen', translateMapControls);
+  window.addEventListener('aletrain:language', translateMapControls);
+  translateMapControls();
 
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
@@ -60,12 +74,13 @@ function initMap() {
   window.addEventListener("resize", () => state.map.invalidateSize());
 }
 
-function setStatus(message, tone = "neutral") {
-  elements.statusLine.textContent = message;
+function setStatus(key, tone = "neutral", params = {}) {
+  setText(elements.statusLine, key, params);
   elements.statusLine.dataset.tone = tone;
 }
 
 function setLoading(isLoading) {
+  state.loading = isLoading;
   elements.locateButton.disabled = isLoading;
   elements.locateTopButton.disabled = isLoading;
   elements.stationInput.disabled = isLoading;
@@ -88,28 +103,38 @@ function escapeHtml(value) {
   });
 }
 
-function formatTime(value) {
-  if (!value) return "--:--";
-  return new Intl.DateTimeFormat("fr-CH", {
-    timeZone: 'Europe/Zurich',
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(value));
-}
+function formatTime(value) { return formatDate(value instanceof Date ? value.toISOString() : value); }
 
 function normalizePlatform(platform) {
   const cleaned = String(platform || "").trim();
-  return cleaned || "sans quai";
+  return cleaned || t('platform.unknown');
+}
+
+function renderStopStatus(stop, journey = null, kind = 'departure') {
+  if (cancelled(journey) || cancelled(stop)) return tx('cancelled');
+  const delay = delayMinutes(stop, kind);
+  const status = tx(hasPrediction(stop, kind) ? 'predicted' : 'scheduled');
+  const deviation = delay === null ? '' : ` · ${delay > 0 ? tx('delay', { minutes: delay }) : delay < 0 ? tx('early', { minutes: Math.abs(delay) }) : tx('onTime')}`;
+  const planned = String(stop?.platform || '').trim();
+  const platform = String(stop?.prognosis?.platform || '').trim();
+  return status + deviation + (planned && platform && planned !== platform ? ` · ${tx('platform.changed', { platform, planned })}` : '');
 }
 
 function journeyTitle(journey) {
   const category = journey.category || "";
   const number = journey.number || "";
-  return `${category} ${number}`.trim() || journey.name || "Train";
+  return `${category} ${number}`.trim() || journey.name || t('service');
 }
 
 function journeyDestination(journey) {
-  return journey.to || "Destination inconnue";
+  return journey.to || t('destination.unknown');
+}
+
+function journeyTitleHtml(journey) {
+  return journey.category || journey.number || journey.name ? escapeHtml(journeyTitle(journey)) : tx('service');
+}
+function journeyDestinationHtml(journey) {
+  return journey.to ? escapeHtml(journey.to) : tx('destination.unknown');
 }
 
 function journeyDeparture(journey) {
@@ -185,7 +210,7 @@ function updateMap(station, journeys = []) {
         iconAnchor: [13, 13],
       }),
     }).addTo(state.map);
-    marker.bindPopup(`<strong>${escapeHtml(station.name)}</strong><br>Gare de départ`);
+    marker.bindPopup(`<strong>${escapeHtml(station.name)}</strong><br>${tx('map.departure')}`);
     state.markers.push(marker);
     state.map.setView(stationCoords, 14);
   }
@@ -255,7 +280,7 @@ async function drawJourneyRoute(journey, exitStop = null) {
     fillOpacity: 1,
     weight: 2,
   })
-    .bindPopup(`<strong>${escapeHtml(routePoints[0].name)}</strong><br>Gare de départ`)
+    .bindPopup(`<strong>${escapeHtml(routePoints[0].name)}</strong><br>${tx('map.departure')}`)
     .addTo(state.routeLayer);
 
   const routeLine = L.polyline(latLngs, {
@@ -287,12 +312,12 @@ async function drawJourneyRoute(journey, exitStop = null) {
         zIndexOffset: 1000,
         icon: L.divIcon({
           className: "exit-marker",
-          html: `<span>Sortir ici</span>`,
+          html: `<span>${tx('map.exit')}</span>`,
           iconSize: [118, 48],
           iconAnchor: [59, 48],
         }),
       })
-        .bindPopup(`<strong>${escapeHtml(exitStop.station.name)}</strong><br>Arrêt de sortie`)
+        .bindPopup(`<strong>${escapeHtml(exitStop.station.name)}</strong><br>${tx('map.exitStop')}`)
         .addTo(state.map);
     }
   }
@@ -308,9 +333,9 @@ async function drawJourneyRoute(journey, exitStop = null) {
   const routeSummary = document.querySelector("#routeSummary");
   routeSummary.hidden = false;
   const title = `${routePoints[0].name} → ${routePoints.at(-1).name}`;
-  routeSummary.textContent = `${title} · Chargement du tracé ferroviaire…`;
+  setText(routeSummary, 'route.loading', { title });
   if (!isRailJourney(journey)) {
-    routeSummary.textContent = `${title} · Tracé indicatif entre les arrêts`;
+    setText(routeSummary, 'route.indicative', { title });
     return;
   }
   try {
@@ -336,7 +361,7 @@ async function drawJourneyRoute(journey, exitStop = null) {
       !Array.isArray(line) || line.length < 2 || line.some(point =>
         !Array.isArray(point) || point.length !== 2 || !point.every(Number.isFinite)))) {
       railRouteRequests.delete(key);
-      throw new Error("Tracé incomplet.");
+      throw Object.assign(new Error('error.request'), { key: 'error.request' });
     }
     routeLine.setLatLngs(lines);
     routeLine.setStyle({ dashArray: null });
@@ -345,10 +370,10 @@ async function drawJourneyRoute(journey, exitStop = null) {
     state.map.fitBounds(fittedBounds, {
       paddingTopLeft: [64, 64], paddingBottomRight: [64, 36], maxZoom: 12,
     });
-    routeSummary.textContent = `${title} · Sur les voies, parcours estimé`;
+    setText(routeSummary, 'route.estimated', { title });
   } catch {
     if (state.routeLayer !== activeLayer) return;
-    routeSummary.textContent = `${title} · Tracé simplifié, voies indisponibles`;
+    setText(routeSummary, 'route.fallback', { title });
   }
 }
 
@@ -364,7 +389,7 @@ async function fetchJson(path, params) {
 
   const response = await fetch(url, { signal: AbortSignal.timeout(15000), cache: 'no-store' });
   if (!response.ok) {
-    throw new Error(`Erreur API (${response.status})`);
+    throw Object.assign(new Error('error.api'), { key: 'error.api', params: { status: response.status } });
   }
   return response.json();
 }
@@ -375,7 +400,7 @@ async function fetchLocalApi(path, options = {}) {
     ...options,
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "Requête impossible.");
+  if (!response.ok) throw new Error(t('error.request'));
   return data;
 }
 
@@ -410,6 +435,46 @@ async function loadStationboard(station) {
     .sort((a, b) => (journeyDeparture(a) || "").localeCompare(journeyDeparture(b) || ""));
 }
 
+function recordBoardReceipt() {
+  state.boardLoadedAt = Date.now();
+  state.refreshFailed = false;
+  setText(document.querySelector('#realtimeStatus'), 'board.updated', { time: formatTime(new Date()) });
+}
+
+function serviceKey(journey) {
+  return [journey.category, journey.number, journey.to, journey.stop?.departure].join('|');
+}
+function departureSignature(journey) {
+  return JSON.stringify([stopTime(journey.stop), delayMinutes(journey.stop), platformFor(journey), cancelled(journey),
+    (journey.passList || []).map(stop => [stop.station?.id, stopTime(stop, 'arrival'), delayMinutes(stop, 'arrival'), platformFor({ stop }), cancelled(stop)])]);
+}
+async function refreshBoard() {
+  if (!state.station || state.busy || state.loading || state.refreshing || document.hidden) return;
+  state.refreshing = true;
+  const revision = state.revision;
+  try {
+    const board = await loadStationboard(state.station);
+    if (revision !== state.revision) return;
+    const previous = state.selectedJourney;
+    if (previous) {
+      const next = board.find(journey => serviceKey(journey) === serviceKey(previous));
+      if (!next || departureSignature(next) !== departureSignature(previous)) {
+        resetDraws();
+        setStatus('recheck', 'warning');
+      } else state.selectedJourney = next;
+    }
+    state.stationboard = board;
+    recordBoardReceipt();
+    refreshDrawableState();
+    if (state.selectedJourney) elements.drawStopsButton.disabled = false;
+  } catch {
+    if (revision !== state.revision) return;
+    state.refreshFailed = true;
+    setText(document.querySelector('#realtimeStatus'), 'board.stale', { time: formatTime(new Date(state.boardLoadedAt)) });
+    elements.drawStopsButton.disabled = true;
+  } finally { state.refreshing = false; }
+}
+
 function getReachableStops(journey) {
   const minutes = getAvailableMinutes();
   const remainingStops = getRemainingStops(journey).filter(stop => !cancelled(stop));
@@ -439,7 +504,7 @@ function getDrawableJourneys() {
 function groupByPlatform(journeys) {
   const grouped = new Map();
   journeys.forEach((journey) => {
-    const rawPlatform = platformFor(journey) || (!isRailJourney(journey) ? 'Point de départ à vérifier' : '');
+    const rawPlatform = platformFor(journey) || (!isRailJourney(journey) ? '__unknown__' : '');
     if (!rawPlatform) return;
 
     const platform = normalizePlatform(rawPlatform);
@@ -461,30 +526,30 @@ function renderStation() {
   const minutes = getAvailableMinutes();
   const waitMinutes = getWaitMinutes();
 
-  elements.stationName.textContent = state.station?.name || "Choisis ta gare de départ";
+  elements.stationName.textContent = state.station?.name || t('chooseStation');
   elements.stationMeta.textContent =
     !state.station
-      ? "Choisis une gare pour voir les prochains trains."
+      ? t('board.choose')
       : trainTotal > 0
-      ? `${trainTotal} prochains départs visibles · ${platformTotal} points de départ compatibles avec tes critères.`
-      : "Aucun prochain départ n'a été trouvé pour ces modes.";
-  elements.platformCount.textContent = `${platformTotal} point${platformTotal > 1 ? "s" : ""}`;
+      ? t('board.meta', { departures: { key: 'departures', count: trainTotal }, points: { key: 'points', count: platformTotal } })
+      : t('board.empty');
+  elements.platformCount.textContent = t(`points.${platformTotal === 1 ? 'one' : 'other'}`, { count: platformTotal });
   elements.drawPlatformButton.disabled = state.busy || platformTotal === 0;
   elements.durationHint.textContent = !waitMinutes
-    ? "Indique une attente maximale d'au moins 1 minute."
+    ? t('wait.invalid')
     : minutes
-      ? `${platformTotal} point${platformTotal > 1 ? "s" : ""} de départ · trajet ≤ ${minutes} min · attente ≤ ${waitMinutes} min.`
-      : "Indique une durée pour activer le tirage.";
+      ? t('criteria', { points: { key: 'points', count: platformTotal }, minutes, wait: waitMinutes })
+      : t('duration.help');
 }
 
 function renderDepartures() {
   const journeys = state.stationboard.slice(0, 18);
   if (journeys.length === 0) {
-    elements.departureList.innerHTML = `
+    setHtml(elements.departureList, `
       <article class="empty-state">
-        ${state.station ? "Aucun transport n'est disponible dans les prochains départs de cet arrêt." : "Choisis une gare ou un arrêt pour découvrir les prochains départs."}
+        ${state.station ? t('board.noServices') : t('board.pick')}
       </article>
-    `;
+    `);
     return;
   }
 
@@ -494,15 +559,15 @@ function renderDepartures() {
       const reachableStops = getReachableStops(journey);
       return `
         <article class="departure-item">
-          <span class="platform-badge">${escapeHtml(platform)}</span>
+          <span class="platform-badge">${platform === '__unknown__' ? tx('boardingUnknown') : escapeHtml(platform)}</span>
           <div class="departure-main">
-            <strong>${escapeHtml(journeyTitle(journey))} → ${escapeHtml(journeyDestination(journey))}</strong>
+            <strong>${journeyTitleHtml(journey)} → ${journeyDestinationHtml(journey)}</strong>
             <span>${escapeHtml(journey.stop?.station?.name || state.station.name)}</span>
-            <span>${getReachableStops(journey).length} arrêt${reachableStops.length > 1 ? "s" : ""} dans la durée</span>
+            <span>${tx('withinDuration', { stops: { key: 'stops', count: reachableStops.length } })}</span>
           </div>
           <div class="departure-side">
             <time class="departure-time">${formatTime(journeyDeparture(journey))}</time>
-            <small>${cancelled(journey) ? 'Supprimé' : journey.stop?.prognosis?.departure ? 'Prévision actualisée' : 'Horaire prévu'}</small>
+      <small>${renderStopStatus(journey.stop, journey)}</small>
           </div>
         </article>
       `;
@@ -521,18 +586,18 @@ function resetDraws() {
   state.selectedJourney = null;
   state.selectedPlatform = null;
   elements.drawStopsButton.disabled = true;
-  elements.stopCount.textContent = "0 arrêt";
-  elements.trainResult.innerHTML = `
-    <span class="result-kicker">Résultat</span>
-    <strong>Aucun transport tiré au sort</strong>
-    <p>Indique d'abord ton temps disponible, puis tire un départ compatible.</p>
-  `;
-  elements.stopsPreview.textContent = "Sélectionne d'abord un transport.";
+  setText(elements.stopCount, 'stops.other', { count: 0 });
+  setHtml(elements.trainResult, `
+    <span class="result-kicker">${tx('result')}</span>
+    <strong>${tx('draw.none')}</strong>
+    <p>${tx('draw.help')}</p>
+  `);
+  setText(elements.stopsPreview, 'stop.select');
 }
 
 async function selectStation(station) {
   if (!station) {
-    setStatus("Aucune gare n'a été trouvée. Essaie un autre nom.", "error");
+    setStatus('error.station', "error");
     return;
   }
 
@@ -540,34 +605,33 @@ async function selectStation(station) {
   resetDraws();
   const revision = state.revision;
   state.stationboard = [];
-  setStatus(`Chargement des prochains trains pour ${station.name}...`);
+  setStatus('board.loading', 'neutral', { station: station.name });
 
   try {
     const board = await loadStationboard(station);
     if (revision !== state.revision) return;
     state.station = station;
     state.stationboard = board;
-    state.boardLoadedAt = Date.now();
+    recordBoardReceipt();
 
     refreshDrawableState();
     updateMap(station, board);
 
     if (board.length === 0) {
-      setStatus("Arrêt trouvé, mais aucun transport n'est disponible pour ces modes.", "warning");
+      setStatus('board.empty', "warning");
     } else {
-      setStatus("Prêt. Indique ton temps disponible puis tire un départ.");
+      setStatus('ready');
     }
   } catch (error) {
     if (revision !== state.revision) return;
-    setStatus(error.message || "Impossible de charger les départs.", "error");
+    setStatus(error.key || 'error.board', "error", error.params);
   } finally {
     if (revision === state.revision) setLoading(false);
   }
 }
 
 function isRailJourney(journey) {
-  return elements.adventureInput.value === 'train' || /^(IC|ICE|ICN|EC|EN|IR|RE|R|S|SN|RJ|RJX|TGV|TER|EXT|PE|BEX|GEX)\d*$/i.test(journey.category || '') ||
-    journey.categoryCode === 0 || journey.categoryCode === 1 || journey.categoryCode === 2;
+  return elements.adventureInput.value === 'train' || /^(IC|ICE|ICN|EC|EN|IR|RE|R|S|SN|RJ|RJX|TGV|TER|EXT|PE|BEX|GEX)\d*$/i.test(journey.category || '');
 }
 
 function returnSettings() {
@@ -575,7 +639,7 @@ function returnSettings() {
   const deadline = swissTimestamp(elements.returnInput.value);
   const stay = Number(elements.stayInput.value);
   if (!Number.isFinite(deadline) || deadline <= Date.now() || !Number.isInteger(stay) || stay < 5 || stay > 1440) {
-    throw new Error('Choisis un retour futur (heure suisse) et entre 5 et 1440 minutes sur place.');
+    throw Object.assign(new Error('return.invalid'), { key: 'return.invalid' });
   }
   return { deadline, stay };
 }
@@ -583,18 +647,18 @@ function returnSettings() {
 function renderReturnSummary(trip, settings) {
   const departure = stopTime(trip.from);
   const arrival = stopTime(trip.to, 'arrival');
-  const date = value => swissDateTime(Date.parse(value)).date;
   const sections = trip.sections.map(section => {
     const platform = platformFor({ stop: section.departure });
     return `<li>${escapeHtml(section.departure?.station?.name || '')} ${formatTime(stopTime(section.departure))}
       → ${escapeHtml(section.arrival?.station?.name || '')} ${formatTime(stopTime(section.arrival, 'arrival'))}
-      · ${escapeHtml(section.journey ? journeyTitle(section.journey) : 'À pied')}
-      ${platform ? `· quai / arrêt ${escapeHtml(platform)}` : ''}</li>`;
+      · ${section.journey ? journeyTitleHtml(section.journey) : tx('walk')}
+      ${platform ? `· ${tx('platform.label', { platform })}` : ''}
+      ${section.journey ? `· ${renderStopStatus(section.departure, section.journey)} · ${renderStopStatus(section.arrival, null, 'arrival')}` : ''}</li>`;
   }).join('');
-  return `<div class="return-summary"><strong>Retour vers ${escapeHtml(state.station.name)}</strong>
-    <p>Départ le ${date(departure)} à ${formatTime(departure)} · arrivée le ${date(arrival)} à ${formatTime(arrival)}
-    · ${escapeHtml(String(trip.transfers ?? '?'))} changement(s).</p>
-    <p>${settings.stay} min minimum sur place. Horaires vérifiés à ${formatTime(new Date())}, à reconfirmer avant le retour.</p>
+  return `<div class="return-summary"><strong>${tx('return.to', { station: state.station.name })}</strong>
+    <p>${tx('return.times', { departure: { date: departure, kind: 'datetime' }, arrival: { date: arrival, kind: 'datetime' } })}
+    ${typeof trip.transfers === 'number' ? `· ${px('transfers', trip.transfers)}` : ''}</p>
+    <p>${tx('return.note', { minutes: settings.stay, time: formatTime(new Date()) })}</p>
     <ol>${sections}</ol></div>`;
 }
 
@@ -602,7 +666,7 @@ async function drawPlatformAndTrain() {
   if (state.busy || !state.station) return;
   const minutes = getAvailableMinutes();
   if (!minutes) {
-    setStatus("Indique le temps disponible avant de tirer un trajet.", "warning");
+    setStatus('draw.needDuration', "warning");
     elements.durationInput.focus();
     return;
   }
@@ -612,20 +676,20 @@ async function drawPlatformAndTrain() {
   state.busy = true;
   elements.drawPlatformButton.disabled = true;
   elements.drawPlatformButton.classList.add("is-spinning");
-  elements.trainResult.innerHTML = `
-    <span class="result-kicker">Tirage</span>
-    <strong>Vérification des départs…</strong>
-    <p>Horaires et points de départ actualisés · marge de 2 minutes pour embarquer.</p>
-  `;
+  setHtml(elements.trainResult, `
+    <span class="result-kicker">${tx('draw')}</span>
+    <strong>${tx('checking')}</strong>
+    <p>${tx('checking.help')}</p>
+  `);
   try {
     returnSettings();
     const board = await loadStationboard(state.station);
     if (revision !== state.revision) return;
     state.stationboard = board;
-    state.boardLoadedAt = Date.now();
+    recordBoardReceipt();
     refreshDrawableState();
     const platforms = [...state.platforms.keys()];
-    if (!platforms.length) throw new Error('Aucun départ compatible avec tes critères et la marge de 2 minutes. Augmente les durées ou change de mode.');
+    if (!platforms.length) throw Object.assign(new Error('draw.noMatch'), { key: 'draw.noMatch' });
     const platform = randomItem(platforms);
     const platformJourneys = [...state.platforms.get(platform)].sort((a, b) =>
       (journeyDeparture(a) || "").localeCompare(journeyDeparture(b) || ""),
@@ -639,26 +703,26 @@ async function drawPlatformAndTrain() {
     elements.drawStopsButton.disabled = false;
 
     const reachableStops = getReachableStops(journey);
-    elements.stopCount.textContent = `${reachableStops.length} arrêt${reachableStops.length > 1 ? "s" : ""}`;
-    elements.trainResult.innerHTML = `
-      <span class="result-kicker">Départ · ${escapeHtml(platform)}</span>
-      <strong>${escapeHtml(journeyTitle(journey))} → ${escapeHtml(journeyDestination(journey))}</strong>
+    setText(elements.stopCount, 'stops.other', { count: reachableStops.length });
+    setHtml(elements.trainResult, `
+      <span class="result-kicker">${tx('departure')} · ${platform === '__unknown__' ? tx('boardingUnknown') : escapeHtml(platform)}</span>
+      <strong>${journeyTitleHtml(journey)} → ${journeyDestinationHtml(journey)}</strong>
       <div class="train-meta">
-        <span class="train-chip">Départ ${formatTime(journeyDeparture(journey))}</span>
-        <span class="train-chip">${journey.stop?.prognosis?.departure ? 'Prévision actualisée' : 'Horaire prévu'}</span>
-        <span class="train-chip">${reachableStops.length} arrêts possibles</span>
+        <span class="train-chip">${tx('departure.at', { time: formatTime(journeyDeparture(journey)) })}</span>
+        <span class="train-chip">${renderStopStatus(journey.stop, journey)}</span>
+        <span class="train-chip">${tx('possibleStops', { stops: { key: 'stops', count: reachableStops.length } })}</span>
       </div>
-      <a class="map-link" href="#journeyMap">Voir le trajet sur la carte <span aria-hidden="true">↗</span></a>
-    `;
-    elements.stopsPreview.textContent = "Le transport est choisi. Tire maintenant ton arrêt.";
-    if (elements.returnInput.value) elements.stopsPreview.textContent = 'Le retour sera vérifié avant de confirmer ton arrêt de sortie.';
-    setStatus(`Départs vérifiés à ${formatTime(new Date())}. Consulte aussi les annonces sur place.`);
+      <a class="map-link" href="#journeyMap">${tx('map.see')}<span aria-hidden="true">↗</span></a>
+    `);
+    setText(elements.stopsPreview, 'stop.ready');
+    if (elements.returnInput.value) setText(elements.stopsPreview, 'return.pending');
+    setStatus('verified', 'neutral', { time: formatTime(new Date()) });
     updateMap(state.station, [journey]);
     drawJourneyRoute(journey);
   } catch (error) {
     if (revision !== state.revision) return;
-    elements.trainResult.textContent = 'Tirage indisponible. Réessaie après avoir vérifié tes critères.';
-    setStatus(error.message || 'Vérification des départs impossible.', 'error');
+    setText(elements.trainResult, 'draw.unavailable');
+    setStatus(error.key || 'error.verify', 'error', error.params);
   } finally {
     if (revision === state.revision) {
       state.busy = false;
@@ -681,14 +745,14 @@ function getRemainingStops(journey) {
 
 async function drawStops() {
   if (state.busy || !state.selectedJourney) return;
-  if (Date.now() - state.boardLoadedAt > 60000 || Date.parse(journeyDeparture(state.selectedJourney)) < Date.now() + 120000) {
+  if (state.refreshFailed || Date.now() - state.boardLoadedAt > 60000 || Date.parse(journeyDeparture(state.selectedJourney)) < Date.now() + 120000) {
     resetDraws();
     refreshDrawableState();
-    setStatus('Les départs doivent être revérifiés. Choisis à nouveau ton transport.', 'warning');
+    setStatus('recheck', 'warning');
     return;
   }
   let settings;
-  try { settings = returnSettings(); } catch (error) { setStatus(error.message, 'warning'); return; }
+  try { settings = returnSettings(); } catch (error) { setStatus(error.key || 'return.invalid', 'warning'); return; }
   const reachableStops = getReachableStops(state.selectedJourney);
   if (reachableStops.length === 0) return;
   const revision = state.revision;
@@ -702,7 +766,7 @@ async function drawStops() {
   let returnTrip = null;
   try {
     if (settings) {
-      elements.stopsPreview.textContent = 'Recherche d’un retour compatible…';
+      setText(elements.stopsPreview, 'return.search');
       // Shuffle without replacement, then cap network work per user action.
       const candidates = [...reachableStops];
       for (let i = candidates.length - 1; i > 0; i--) {
@@ -721,14 +785,14 @@ async function drawStops() {
         returnTrip = (data.connections || []).find(connection => usableReturn(connection, earliest, settings.deadline));
         if (returnTrip) { destinationStop = stop; break; }
       }
-      if (!returnTrip) throw new Error('Aucun retour compatible trouvé parmi les 6 arrêts testés au maximum. Essaie un autre tirage, un retour plus tard ou moins de temps sur place.');
+      if (!returnTrip) throw Object.assign(new Error('return.none'), { key: 'return.none' });
     }
     if (revision !== state.revision) return;
-    if (Date.now() - state.boardLoadedAt > 60000 || Date.parse(journeyDeparture(state.selectedJourney)) < Date.now() + 120000) throw new Error('Les départs doivent être revérifiés. Choisis à nouveau ton transport.');
+    if (Date.now() - state.boardLoadedAt > 60000 || Date.parse(journeyDeparture(state.selectedJourney)) < Date.now() + 120000) throw Object.assign(new Error('recheck'), { key: 'recheck' });
   } catch (error) {
     if (revision === state.revision) {
-      elements.stopsPreview.textContent = settings ? 'Arrêt non confirmé : retour non vérifié.' : 'Arrêt non confirmé.';
-      setStatus(error.message || 'Recherche du retour indisponible.', 'error');
+      setText(elements.stopsPreview, settings ? 'stop.unconfirmedReturn' : 'stop.unconfirmed');
+      setStatus(error.key || 'error.return', 'error', error.params);
     }
     return;
   } finally {
@@ -742,12 +806,13 @@ async function drawStops() {
   const count = allStops.indexOf(destinationStop) + 1;
   const visibleStops = allStops.slice(0, Math.min(count, 5));
 
-  elements.stopCount.textContent = `${count} arrêt${count > 1 ? "s" : ""}`;
-  elements.stopsPreview.innerHTML = `
+  setText(elements.stopCount, 'stops.other', { count });
+  setHtml(elements.stopsPreview, `
     <div class="stop-destination">
-      <span class="result-kicker">Descendre après ${count} arrêt${count > 1 ? "s" : ""}</span>
+      <span class="result-kicker">${tx('exit.after', { stops: { key: 'stops', count } })}</span>
       <strong>${escapeHtml(destinationStop.station.name)}</strong>
-      <p>${stopTime(destinationStop, 'arrival') ? `Arrivée prévue à ${formatTime(stopTime(destinationStop, 'arrival'))}.` : "Garde un oeil sur les annonces à bord."}</p>
+      <p>${stopTime(destinationStop, 'arrival') ? tx('arrival.at', { time: formatTime(stopTime(destinationStop, 'arrival')) }) : tx('announcements')}</p>
+      <p>${renderStopStatus(destinationStop, null, 'arrival')}</p>
       ${returnTrip ? renderReturnSummary(returnTrip, settings) : ''}
     </div>
     <ol class="stop-list">
@@ -756,19 +821,19 @@ async function drawStops() {
           (stop, index) => `
             <li>
               <span>${index + 1}. ${escapeHtml(stop.station.name)}</span>
-              <time>${stop.arrival ? formatTime(stop.arrival) : ""}</time>
+              <time>${dateHtml(stopTime(stop, 'arrival'))}</time>
             </li>
           `,
         )
         .join("")}
       ${
         count > visibleStops.length
-          ? `<li><span>... ${count - visibleStops.length} arrêt${count - visibleStops.length > 1 ? "s" : ""} de plus</span><time></time></li>`
+          ? `<li><span>${tx('stops.more', { stops: { key: 'stops', count: count - visibleStops.length } })}</span><time></time></li>`
           : ""
       }
     </ol>
-    <a class="map-link" href="#journeyMap">Voir mon trajet sur la carte <span aria-hidden="true">↗</span></a>
-  `;
+    <a class="map-link" href="#journeyMap">${tx('map.seeMine')}<span aria-hidden="true">↗</span></a>
+  `);
 
   window.dispatchEvent(new CustomEvent("aletrain:destination", {
     detail: { name: destinationStop.station.name, coords: getStationCoordinates(destinationStop.station) },
@@ -783,7 +848,7 @@ window.addEventListener("aletrain:activity-selected", event => {
   if (!place || !state.map) return;
   state.activityMarker = L.marker(place.coords, {
     icon: L.divIcon({ className: "activity-marker", html: "<span aria-hidden=\"true\">↗</span>", iconSize: [30, 30], iconAnchor: [15, 15] }),
-  }).bindPopup(`<strong>${escapeHtml(place.name)}</strong><br>Ton idée sur place`).addTo(state.map);
+  }).bindPopup(`<strong>${escapeHtml(place.name)}</strong><br>${tx('map.activity')}`).addTo(state.map);
   const routeLine = state.routeLayer?.getLayers().find(layer => layer instanceof L.Polyline);
   const bounds = routeLine ? routeLine.getBounds() : L.latLngBounds([place.coords]);
   state.map.fitBounds(bounds.extend(place.coords), { padding: [48, 48], maxZoom: 14 });
@@ -791,30 +856,30 @@ window.addEventListener("aletrain:activity-selected", event => {
 
 function useGeolocation() {
   if (!navigator.geolocation) {
-    setStatus("La géolocalisation n'est pas disponible dans ce navigateur.", "error");
+    setStatus('geo.unavailable', "error");
     return;
   }
 
   setLoading(true);
-  setStatus("Recherche de ta position...");
+  setStatus('geo.search');
 
   navigator.geolocation.getCurrentPosition(
     async (position) => {
       try {
         const { latitude, longitude } = position.coords;
         state.map.setView([latitude, longitude], 13);
-        setStatus("Position trouvée. Recherche de la gare la plus proche...");
+        setStatus('geo.station');
         const station = await findNearestStation(latitude, longitude);
         await selectStation(station);
       } catch (error) {
-        setStatus(error.message || "Impossible de trouver une gare proche.", "error");
+        setStatus(error.key || 'geo.error', "error", error.params);
       } finally {
         setLoading(false);
       }
     },
     () => {
       setLoading(false);
-      setStatus("Position refusée ou indisponible. Tu peux chercher une gare manuellement.", "warning");
+      setStatus('geo.denied', "warning");
     },
     {
       enableHighAccuracy: true,
@@ -851,21 +916,27 @@ elements.stationSearch.addEventListener("submit", async (event) => {
   event.preventDefault();
   const query = elements.stationInput.value.trim();
   if (!query) {
-    setStatus("Entre le nom d'une gare pour lancer la recherche.", "warning");
+    setStatus('search.empty', "warning");
     return;
   }
 
   setLoading(true);
-  setStatus(`Recherche de "${query}"...`);
+  setStatus('search.loading', 'neutral', { query });
 
   try {
     const station = await searchStation(query);
     await selectStation(station);
   } catch (error) {
-    setStatus(error.message || "La recherche de gare a échoué.", "error");
+    setStatus(error.key || 'search.error', "error", error.params);
   } finally {
     setLoading(false);
   }
 });
 
 initMap();
+window.addEventListener('aletrain:language', () => {
+  refreshDrawableState();
+  applyTranslations();
+});
+window.setInterval(refreshBoard, 30000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshBoard(); });

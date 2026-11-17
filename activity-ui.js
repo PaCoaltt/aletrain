@@ -1,4 +1,5 @@
 import { chooseActivity, filterActivities, validActivityLocation, walkingMinutes } from "./activities-common.js";
+import { setText } from './i18n.js';
 
 const section = document.querySelector("#activitySection");
 const intro = document.querySelector("#activityIntro");
@@ -7,7 +8,7 @@ const button = document.querySelector("#drawActivityButton");
 const category = document.querySelector("#activityCategory");
 const minutes = document.querySelector("#activityMinutes");
 const budget = document.querySelector("#activityBudget");
-const categories = { walk: "Se balader", discover: "Découvrir", food: "Manger ou boire" };
+const categories = { walk: 'activity.walk', discover: 'activity.discover', food: 'activity.food' };
 let destination = null, places = null, controller = null;
 let revision = 0, generation = 0, loading = false;
 const seen = new Set();
@@ -20,9 +21,9 @@ try {
 } catch { /* Storage may be unavailable. Defaults remain usable. */ }
 
 function filters() { return { category: category.value, minutes: Number(minutes.value), budget: budget.value }; }
-function setButton(label) { button.replaceChildren(document.createTextNode(label)); }
+function setButton(key) { setText(button, key); }
 function removeMarker() { window.dispatchEvent(new CustomEvent("aletrain:activity-selected", { detail: null })); }
-function message(text) { output.replaceChildren(document.createTextNode(text)); }
+function message(key) { setText(output, key); }
 
 window.addEventListener("aletrain:destination", event => {
   generation++;
@@ -34,42 +35,50 @@ window.addEventListener("aletrain:destination", event => {
   loading = false;
   output.removeAttribute("aria-busy");
   output.replaceChildren();
+  delete output.dataset.i18n;
+  delete output.dataset.i18nParams;
   removeMarker();
   section.hidden = !destination;
-  setButton("Trouver une idée");
+  setButton('activity.find');
   button.disabled = !validActivityLocation(destination?.coords);
   if (!destination) return;
-  intro.textContent = `Une idée près de ${destination.name}, pour prolonger le voyage.`;
-  if (button.disabled) message("Les coordonnées de cette gare ne sont pas disponibles pour chercher une sortie.");
+  setText(intro, 'activity.near', { station: destination.name });
+  if (button.disabled) message('activity.noCoords');
 });
 
 for (const field of [category, minutes, budget]) field.addEventListener("change", () => {
   revision++;
   removeMarker();
-  message("Tes critères sont prêts. Tire une nouvelle idée.");
-  setButton("Trouver une idée");
+  message('activity.criteriaReady');
+  setButton('activity.find');
   try { sessionStorage.setItem("aletrainActivityFilters", JSON.stringify(filters())); } catch { /* Optional persistence. */ }
 });
 
 function renderPlace(place) {
   const label = document.createElement("span");
   label.className = "result-kicker";
-  label.textContent = categories[place.category];
+  setText(label, categories[place.category]);
   const name = document.createElement("strong");
   name.textContent = place.name;
   const walk = document.createElement("p");
-  walk.textContent = `Environ ${Math.max(1, Math.ceil(walkingMinutes(destination.coords, place.coords)))} min à pied — estimation`;
+  setText(walk, 'activity.walkTime', { minutes: Math.max(1, Math.ceil(walkingMinutes(destination.coords, place.coords))) });
   const note = document.createElement("p");
   note.className = "activity-note";
-  note.textContent = `${place.category === "food" ? "Consommation à prévoir" : place.free === true ? "Indiqué gratuit" : place.free === false ? "Entrée payante indiquée" : "Tarif non renseigné"} · Horaires et tarifs à vérifier sur la fiche du lieu.`;
+  const price = document.createElement('span');
+  setText(price, place.category === 'food' ? 'activity.purchase' : place.free === true ? 'activity.free' : place.free === false ? 'activity.paid' : 'activity.unknownPrice');
+  const check = document.createElement('span');
+  setText(check, 'activity.check');
+  note.append(price, document.createTextNode(' · '), check);
   const link = document.createElement("a");
   link.className = "map-link";
   link.href = `https://www.openstreetmap.org/${place.id}`;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
-  link.textContent = "Voir le lieu sur OpenStreetMap ↗";
+  setText(link, 'activity.link');
+  delete output.dataset.i18n;
+  delete output.dataset.i18nParams;
   output.replaceChildren(label, name, walk, note, link);
-  setButton("Une autre idée");
+  setButton('activity.another');
   window.dispatchEvent(new CustomEvent("aletrain:activity-selected", { detail: place }));
 }
 
@@ -79,7 +88,7 @@ button.addEventListener("click", async () => {
   loading = true;
   button.disabled = true;
   output.setAttribute("aria-busy", "true");
-  message("À la recherche d’une idée près de ta gare…");
+  message('activity.searching');
   removeMarker();
   try {
     if (places === null) {
@@ -104,13 +113,13 @@ button.addEventListener("click", async () => {
     const place = chooseActivity(filterActivities(places, destination.coords, filters()), seen);
     if (place) renderPlace(place);
     else {
-      message("Aucun lieu ne correspond à ces critères dans les données disponibles. Essaie d’élargir la marche ou de changer tes filtres.");
-      setButton("Trouver une idée");
+      message('activity.empty');
+      setButton('activity.find');
     }
   } catch {
     if (currentGeneration !== generation || currentRevision !== revision) return;
-    message("Les idées de sortie sont indisponibles pour le moment. Réessaie dans un instant.");
-    setButton("Réessayer");
+    message('activity.unavailable');
+    setButton('retry');
   } finally {
     if (currentGeneration === generation) {
       loading = false;
