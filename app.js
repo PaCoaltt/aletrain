@@ -1,3 +1,4 @@
+import { ADVENTURES, stopTime, platformFor, cancelled, usableReturn, swissDateTime, swissTimestamp } from './adventure.js';
 const API_ROOT = "https://transport.opendata.ch/v1";
 const SWISS_CENTER = [46.8182, 8.2275];
 const railRouteRequests = new Map();
@@ -17,6 +18,9 @@ const state = {
   reports: [],
   profile: JSON.parse(localStorage.getItem("aletrainProfile") || "null"),
   reportTarget: null,
+  revision: 0,
+  busy: false,
+  boardLoadedAt: 0,
 };
 
 const elements = {
@@ -44,6 +48,9 @@ const elements = {
   profileName: document.querySelector("#profileName"),
   durationInput: document.querySelector("#durationInput"),
   waitInput: document.querySelector("#waitInput"),
+  adventureInput: document.querySelector('#adventureInput'),
+  returnInput: document.querySelector('#returnInput'),
+  stayInput: document.querySelector('#stayInput'),
   durationHint: document.querySelector("#durationHint"),
   reportModal: document.querySelector("#reportModal"),
   reportForm: document.querySelector("#reportForm"),
@@ -85,6 +92,11 @@ function setLoading(isLoading) {
   elements.locateTopButton.disabled = isLoading;
   elements.stationInput.disabled = isLoading;
   elements.stationSearch.querySelector("button").disabled = isLoading;
+  for (const input of [elements.adventureInput, elements.durationInput, elements.waitInput, elements.returnInput, elements.stayInput]) input.disabled = isLoading;
+  if (isLoading) {
+    elements.drawPlatformButton.disabled = true;
+    elements.drawStopsButton.disabled = true;
+  } else refreshDrawableState();
 }
 
 function randomItem(items) {
@@ -101,6 +113,7 @@ function escapeHtml(value) {
 function formatTime(value) {
   if (!value) return "--:--";
   return new Intl.DateTimeFormat("fr-CH", {
+    timeZone: 'Europe/Zurich',
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
@@ -122,7 +135,7 @@ function journeyDestination(journey) {
 }
 
 function journeyDeparture(journey) {
-  return journey.stop?.departure || journey.stop?.prognosis?.departure || null;
+  return stopTime(journey?.stop);
 }
 
 function journeyId(journey) {
@@ -130,8 +143,7 @@ function journeyId(journey) {
     state.station?.id || journey.stop?.station?.id || "station",
     journeyTitle(journey),
     journeyDestination(journey),
-    journeyDeparture(journey) || "departure",
-    journey.stop?.platform || journey.stop?.prognosis?.platform || "platform",
+    journey.stop?.departure || journeyDeparture(journey) || "departure",
   ].join("|");
 }
 
@@ -151,7 +163,7 @@ function getWaitMinutes() {
 
 function travelMinutesToStop(journey, stop) {
   const departure = new Date(journeyDeparture(journey)).getTime();
-  const arrival = new Date(stop.arrival || stop.departure || "").getTime();
+  const arrival = new Date(stopTime(stop, 'arrival') || stopTime(stop) || "").getTime();
   if (!Number.isFinite(departure) || !Number.isFinite(arrival)) return null;
   return Math.max(0, Math.round((arrival - departure) / 60000));
 }
@@ -332,6 +344,10 @@ async function drawJourneyRoute(journey, exitStop = null) {
   routeSummary.hidden = false;
   const title = `${routePoints[0].name} → ${routePoints.at(-1).name}`;
   routeSummary.textContent = `${title} · Chargement du tracé ferroviaire…`;
+  if (!isRailJourney(journey)) {
+    routeSummary.textContent = `${title} · Tracé indicatif entre les arrêts`;
+    return;
+  }
   try {
     // Fetch the complete possible route once; a new exit only trims its legs.
     const points = getRoutePoints(journey).map(point => point.coords);
@@ -381,7 +397,7 @@ async function fetchJson(path, params) {
     }
   });
 
-  const response = await fetch(url);
+  const response = await fetch(url, { signal: AbortSignal.timeout(15000), cache: 'no-store' });
   if (!response.ok) {
     throw new Error(`Erreur API (${response.status})`);
   }
@@ -421,7 +437,7 @@ async function loadStationboard(station) {
   const data = await fetchJson("/stationboard", {
     id: station.id,
     limit: 40,
-    "transportations[]": "train",
+    "transportations[]": ADVENTURES[elements.adventureInput.value] || ADVENTURES.train,
   });
 
   return (data.stationboard || [])
@@ -440,7 +456,7 @@ async function loadReports() {
 
 function findReport(journey) {
   const id = journeyId(journey);
-  return state.reports.find((report) => report.trainId === id);
+  return state.reports.find((report) => report.trainId === id || report.trainId?.startsWith(`${id}|`));
 }
 
 function reportIncludesUser(report, field) {
@@ -463,6 +479,7 @@ function isTrainHiddenForCurrentUser(journey) {
 
 function isTrainBlockedFromDraw(journey) {
   const report = findReport(journey);
+  if (report?.adminDecision === 'approved') return true;
   if (!report || isReportIgnoredForCurrentUser(report)) return false;
   return isReportedByCurrentUser(report) || reportIncludesUser(report, "confirmations");
 }
@@ -475,7 +492,7 @@ function getVisibleReportForCurrentUser(journey) {
 
 function getReachableStops(journey) {
   const minutes = getAvailableMinutes();
-  const remainingStops = getRemainingStops(journey);
+  const remainingStops = getRemainingStops(journey).filter(stop => !cancelled(stop));
   if (!minutes) return remainingStops;
 
   return remainingStops.filter((stop) => {
@@ -492,9 +509,9 @@ function getDrawableJourneys() {
   const latestDeparture = now + waitMinutes * 60000;
 
   return state.stationboard.filter((journey) => {
-    const platform = String(journey.stop?.platform || journey.stop?.prognosis?.platform || "").trim();
+    const platform = platformFor(journey);
     const departure = new Date(journey.stop?.prognosis?.departure || journeyDeparture(journey)).getTime();
-    return platform && departure >= now && departure <= latestDeparture &&
+    return (platform || !isRailJourney(journey)) && departure >= now + 2 * 60000 && departure <= latestDeparture && !cancelled(journey) &&
       !isTrainBlockedFromDraw(journey) && getReachableStops(journey).length > 0;
   });
 }
@@ -502,7 +519,7 @@ function getDrawableJourneys() {
 function groupByPlatform(journeys) {
   const grouped = new Map();
   journeys.forEach((journey) => {
-    const rawPlatform = String(journey.stop?.platform || journey.stop?.prognosis?.platform || "").trim();
+    const rawPlatform = platformFor(journey) || (!isRailJourney(journey) ? 'Point de départ à vérifier' : '');
     if (!rawPlatform) return;
 
     const platform = normalizePlatform(rawPlatform);
@@ -543,14 +560,14 @@ function renderStation() {
     !state.station
       ? "Choisis une gare pour voir les prochains trains."
       : trainTotal > 0
-      ? `${trainTotal} prochains trains visibles · ${platformTotal} quai${platformTotal > 1 ? "s" : ""} compatibles avec tes critères.`
-      : "Aucun prochain départ en train n'a été trouvé.";
-  elements.platformCount.textContent = `${platformTotal} quai${platformTotal > 1 ? "s" : ""}`;
-  elements.drawPlatformButton.disabled = platformTotal === 0;
+      ? `${trainTotal} prochains départs visibles · ${platformTotal} points de départ compatibles avec tes critères.`
+      : "Aucun prochain départ n'a été trouvé pour ces modes.";
+  elements.platformCount.textContent = `${platformTotal} point${platformTotal > 1 ? "s" : ""}`;
+  elements.drawPlatformButton.disabled = state.busy || platformTotal === 0;
   elements.durationHint.textContent = !waitMinutes
     ? "Indique une attente maximale d'au moins 1 minute."
     : minutes
-      ? `${platformTotal} quai${platformTotal > 1 ? "s" : ""} possible${platformTotal > 1 ? "s" : ""} · trajet ≤ ${minutes} min · attente ≤ ${waitMinutes} min.`
+      ? `${platformTotal} point${platformTotal > 1 ? "s" : ""} de départ · trajet ≤ ${minutes} min · attente ≤ ${waitMinutes} min.`
       : "Indique une durée pour activer le tirage.";
 }
 
@@ -559,7 +576,7 @@ function renderDepartures() {
   if (journeys.length === 0) {
     elements.departureList.innerHTML = `
       <article class="empty-state">
-        ${state.station ? "Aucun train n'est disponible dans les prochains départs de cette gare." : "Choisis une gare pour découvrir les prochains départs."}
+        ${state.station ? "Aucun transport n'est disponible dans les prochains départs de cet arrêt." : "Choisis une gare ou un arrêt pour découvrir les prochains départs."}
       </article>
     `;
     return;
@@ -567,7 +584,7 @@ function renderDepartures() {
 
   elements.departureList.innerHTML = journeys
     .map((journey) => {
-      const platform = normalizePlatform(journey.stop?.platform || journey.stop?.prognosis?.platform);
+      const platform = normalizePlatform(platformFor(journey));
       const report = getVisibleReportForCurrentUser(journey);
       const reachableStops = getReachableStops(journey);
       const reportedByMe = isReportedByCurrentUser(report);
@@ -600,6 +617,7 @@ function renderDepartures() {
           </div>
           <div class="departure-side">
             <time class="departure-time">${formatTime(journeyDeparture(journey))}</time>
+            <small>${cancelled(journey) ? 'Supprimé' : journey.stop?.prognosis?.departure ? 'Prévision actualisée' : 'Horaire prévu'}</small>
             <button class="report-button" type="button" data-action="open-report" data-train-id="${trainId}" aria-label="Signaler ce train supprimé">!</button>
           </div>
         </article>
@@ -609,6 +627,8 @@ function renderDepartures() {
 }
 
 function resetDraws() {
+  state.revision++;
+  state.busy = false;
   window.clearTimeout(state.drawTimer);
   elements.drawPlatformButton.classList.remove("is-spinning");
   window.dispatchEvent(new CustomEvent("aletrain:destination", { detail: null }));
@@ -620,10 +640,10 @@ function resetDraws() {
   elements.stopCount.textContent = "0 arrêt";
   elements.trainResult.innerHTML = `
     <span class="result-kicker">Résultat</span>
-    <strong>Aucun train tiré au sort</strong>
-    <p>Indique d'abord ton temps disponible, puis tire un quai parmi les trains compatibles.</p>
+    <strong>Aucun transport tiré au sort</strong>
+    <p>Indique d'abord ton temps disponible, puis tire un départ compatible.</p>
   `;
-  elements.stopsPreview.textContent = "Sélectionne d'abord un train.";
+  elements.stopsPreview.textContent = "Sélectionne d'abord un transport.";
 }
 
 async function selectStation(station) {
@@ -634,30 +654,69 @@ async function selectStation(station) {
 
   setLoading(true);
   resetDraws();
+  const revision = state.revision;
+  state.stationboard = [];
   setStatus(`Chargement des prochains trains pour ${station.name}...`);
 
   try {
     const board = await loadStationboard(station);
     await loadReports();
+    if (revision !== state.revision) return;
     state.station = station;
     state.stationboard = board;
+    state.boardLoadedAt = Date.now();
 
     refreshDrawableState();
     updateMap(station, board);
 
     if (board.length === 0) {
-      setStatus("Gare trouvée, mais aucun train n'est disponible dans les prochains départs.", "warning");
+      setStatus("Arrêt trouvé, mais aucun transport n'est disponible pour ces modes.", "warning");
     } else {
-      setStatus("Prêt. Indique ton temps disponible puis tire un quai.");
+      setStatus("Prêt. Indique ton temps disponible puis tire un départ.");
     }
   } catch (error) {
+    if (revision !== state.revision) return;
     setStatus(error.message || "Impossible de charger les départs.", "error");
   } finally {
-    setLoading(false);
+    if (revision === state.revision) setLoading(false);
   }
 }
 
-function drawPlatformAndTrain() {
+function isRailJourney(journey) {
+  return elements.adventureInput.value === 'train' || /^(IC|ICE|ICN|EC|EN|IR|RE|R|S|SN|RJ|RJX|TGV|TER|EXT|PE|BEX|GEX)\d*$/i.test(journey.category || '') ||
+    journey.categoryCode === 0 || journey.categoryCode === 1 || journey.categoryCode === 2;
+}
+
+function returnSettings() {
+  if (!elements.returnInput.value) return null;
+  const deadline = swissTimestamp(elements.returnInput.value);
+  const stay = Number(elements.stayInput.value);
+  if (!Number.isFinite(deadline) || deadline <= Date.now() || !Number.isInteger(stay) || stay < 5 || stay > 1440) {
+    throw new Error('Choisis un retour futur (heure suisse) et entre 5 et 1440 minutes sur place.');
+  }
+  return { deadline, stay };
+}
+
+function renderReturnSummary(trip, settings) {
+  const departure = stopTime(trip.from);
+  const arrival = stopTime(trip.to, 'arrival');
+  const date = value => swissDateTime(Date.parse(value)).date;
+  const sections = trip.sections.map(section => {
+    const platform = platformFor({ stop: section.departure });
+    return `<li>${escapeHtml(section.departure?.station?.name || '')} ${formatTime(stopTime(section.departure))}
+      → ${escapeHtml(section.arrival?.station?.name || '')} ${formatTime(stopTime(section.arrival, 'arrival'))}
+      · ${escapeHtml(section.journey ? journeyTitle(section.journey) : 'À pied')}
+      ${platform ? `· quai / arrêt ${escapeHtml(platform)}` : ''}</li>`;
+  }).join('');
+  return `<div class="return-summary"><strong>Retour vers ${escapeHtml(state.station.name)}</strong>
+    <p>Départ le ${date(departure)} à ${formatTime(departure)} · arrivée le ${date(arrival)} à ${formatTime(arrival)}
+    · ${escapeHtml(String(trip.transfers ?? '?'))} changement(s).</p>
+    <p>${settings.stay} min minimum sur place. Horaires vérifiés à ${formatTime(new Date())}, à reconfirmer avant le retour.</p>
+    <ol>${sections}</ol></div>`;
+}
+
+async function drawPlatformAndTrain() {
+  if (state.busy || !state.station) return;
   const minutes = getAvailableMinutes();
   if (!minutes) {
     setStatus("Indique le temps disponible avant de tirer un trajet.", "warning");
@@ -665,23 +724,26 @@ function drawPlatformAndTrain() {
     return;
   }
 
-  refreshDrawableState();
-  const platforms = [...state.platforms.keys()];
-  if (platforms.length === 0) {
-    setStatus("Aucun train ne respecte ces durées de trajet et d'attente. Essaie de les augmenter.", "warning");
-    return;
-  }
-
   resetDraws();
+  const revision = state.revision;
+  state.busy = true;
   elements.drawPlatformButton.disabled = true;
   elements.drawPlatformButton.classList.add("is-spinning");
   elements.trainResult.innerHTML = `
     <span class="result-kicker">Tirage</span>
-    <strong>Les aiguillages tournent...</strong>
-    <p>Choix du quai actif puis d'un train compatible avec ${minutes} min.</p>
+    <strong>Vérification des départs…</strong>
+    <p>Horaires et points de départ actualisés · marge de 2 minutes pour embarquer.</p>
   `;
-
-  state.drawTimer = window.setTimeout(() => {
+  try {
+    returnSettings();
+    const board = await loadStationboard(state.station);
+    await loadReports();
+    if (revision !== state.revision) return;
+    state.stationboard = board;
+    state.boardLoadedAt = Date.now();
+    refreshDrawableState();
+    const platforms = [...state.platforms.keys()];
+    if (!platforms.length) throw new Error('Aucun départ compatible avec tes critères et la marge de 2 minutes. Augmente les durées ou change de mode.');
     const platform = randomItem(platforms);
     const platformJourneys = [...state.platforms.get(platform)].sort((a, b) =>
       (journeyDeparture(a) || "").localeCompare(journeyDeparture(b) || ""),
@@ -697,19 +759,32 @@ function drawPlatformAndTrain() {
     const reachableStops = getReachableStops(journey);
     elements.stopCount.textContent = `${reachableStops.length} arrêt${reachableStops.length > 1 ? "s" : ""}`;
     elements.trainResult.innerHTML = `
-      <span class="result-kicker">Quai ${escapeHtml(platform)}</span>
+      <span class="result-kicker">Départ · ${escapeHtml(platform)}</span>
       <strong>${escapeHtml(journeyTitle(journey))} → ${escapeHtml(journeyDestination(journey))}</strong>
       <div class="train-meta">
         <span class="train-chip">Départ ${formatTime(journeyDeparture(journey))}</span>
+        <span class="train-chip">${journey.stop?.prognosis?.departure ? 'Prévision actualisée' : 'Horaire prévu'}</span>
         <span class="train-chip">${reachableStops.length} arrêts possibles</span>
         <button class="report-button inline-report" type="button" data-action="open-report" data-train-id="${escapeHtml(journeyId(journey))}">Signaler supprimé</button>
       </div>
       <a class="map-link" href="#journeyMap">Voir le trajet sur la carte <span aria-hidden="true">↗</span></a>
     `;
-    elements.stopsPreview.textContent = "Le train est choisi. Tire maintenant le nombre d'arrêts.";
+    elements.stopsPreview.textContent = "Le transport est choisi. Tire maintenant ton arrêt.";
+    if (elements.returnInput.value) elements.stopsPreview.textContent = 'Le retour sera vérifié avant de confirmer ton arrêt de sortie.';
+    setStatus(`Départs vérifiés à ${formatTime(new Date())}. Consulte aussi les annonces sur place.`);
     updateMap(state.station, [journey]);
     drawJourneyRoute(journey);
-  }, 520);
+  } catch (error) {
+    if (revision !== state.revision) return;
+    elements.trainResult.textContent = 'Tirage indisponible. Réessaie après avoir vérifié tes critères.';
+    setStatus(error.message || 'Vérification des départs impossible.', 'error');
+  } finally {
+    if (revision === state.revision) {
+      state.busy = false;
+      elements.drawPlatformButton.classList.remove('is-spinning');
+      refreshDrawableState();
+    }
+  }
 }
 
 function getRemainingStops(journey) {
@@ -723,20 +798,76 @@ function getRemainingStops(journey) {
   return passList.slice(startIndex).filter((stop) => stop.station?.name);
 }
 
-function drawStops() {
+async function drawStops() {
+  if (state.busy || !state.selectedJourney) return;
+  if (Date.now() - state.boardLoadedAt > 60000 || Date.parse(journeyDeparture(state.selectedJourney)) < Date.now() + 120000) {
+    resetDraws();
+    refreshDrawableState();
+    setStatus('Les départs doivent être revérifiés. Choisis à nouveau ton transport.', 'warning');
+    return;
+  }
+  let settings;
+  try { settings = returnSettings(); } catch (error) { setStatus(error.message, 'warning'); return; }
   const reachableStops = getReachableStops(state.selectedJourney);
   if (reachableStops.length === 0) return;
-
-  const count = Math.floor(Math.random() * reachableStops.length) + 1;
-  const destinationStop = reachableStops[count - 1];
-  const visibleStops = reachableStops.slice(0, Math.min(count, 5));
+  const revision = state.revision;
+  state.busy = true;
+  refreshDrawableState();
+  elements.drawStopsButton.disabled = true;
+  window.dispatchEvent(new CustomEvent('aletrain:destination', { detail: null }));
+  clearRoute();
+  document.querySelector('#routeSummary').hidden = true;
+  let destinationStop = randomItem(reachableStops);
+  let returnTrip = null;
+  try {
+    if (settings) {
+      elements.stopsPreview.textContent = 'Recherche d’un retour compatible…';
+      // Shuffle without replacement, then cap network work per user action.
+      const candidates = [...reachableStops];
+      for (let i = candidates.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+      }
+      for (const stop of candidates.slice(0, 6)) {
+        const arrival = Date.parse(stopTime(stop, 'arrival') || stopTime(stop));
+        const earliest = arrival + settings.stay * 60000;
+        if (!stop.station?.id || !Number.isFinite(earliest) || earliest >= settings.deadline) continue;
+        const data = await fetchJson('/connections', {
+          from: stop.station.id, to: state.station.id, ...swissDateTime(earliest), limit: 4,
+          'transportations[]': ADVENTURES[elements.adventureInput.value],
+        });
+        if (revision !== state.revision) return;
+        returnTrip = (data.connections || []).find(connection => usableReturn(connection, earliest, settings.deadline));
+        if (returnTrip) { destinationStop = stop; break; }
+      }
+      if (!returnTrip) throw new Error('Aucun retour compatible trouvé parmi les 6 arrêts testés au maximum. Essaie un autre tirage, un retour plus tard ou moins de temps sur place.');
+    }
+    if (revision !== state.revision) return;
+    if (Date.now() - state.boardLoadedAt > 60000 || Date.parse(journeyDeparture(state.selectedJourney)) < Date.now() + 120000) throw new Error('Les départs doivent être revérifiés. Choisis à nouveau ton transport.');
+  } catch (error) {
+    if (revision === state.revision) {
+      elements.stopsPreview.textContent = settings ? 'Arrêt non confirmé : retour non vérifié.' : 'Arrêt non confirmé.';
+      setStatus(error.message || 'Recherche du retour indisponible.', 'error');
+    }
+    return;
+  } finally {
+    if (revision === state.revision) {
+      state.busy = false;
+      elements.drawStopsButton.disabled = false;
+      refreshDrawableState();
+    }
+  }
+  const allStops = getRemainingStops(state.selectedJourney);
+  const count = allStops.indexOf(destinationStop) + 1;
+  const visibleStops = allStops.slice(0, Math.min(count, 5));
 
   elements.stopCount.textContent = `${count} arrêt${count > 1 ? "s" : ""}`;
   elements.stopsPreview.innerHTML = `
     <div class="stop-destination">
       <span class="result-kicker">Descendre après ${count} arrêt${count > 1 ? "s" : ""}</span>
       <strong>${escapeHtml(destinationStop.station.name)}</strong>
-      <p>${destinationStop.arrival ? `Arrivée prévue à ${formatTime(destinationStop.arrival)}.` : "Garde un oeil sur les annonces à bord."}</p>
+      <p>${stopTime(destinationStop, 'arrival') ? `Arrivée prévue à ${formatTime(stopTime(destinationStop, 'arrival'))}.` : "Garde un oeil sur les annonces à bord."}</p>
+      ${returnTrip ? renderReturnSummary(returnTrip, settings) : ''}
     </div>
     <ol class="stop-list">
       ${visibleStops
@@ -934,6 +1065,28 @@ elements.waitInput.addEventListener("input", () => {
   resetDraws();
   refreshDrawableState();
 });
+
+for (const input of [elements.returnInput, elements.stayInput]) {
+  input.addEventListener('input', () => { resetDraws(); refreshDrawableState(); });
+}
+elements.adventureInput.addEventListener('change', () => {
+  resetDraws();
+  state.stationboard = [];
+  refreshDrawableState();
+  if (state.station) selectStation(state.station);
+});
+
+async function showVisits() {
+  try {
+    const response = await fetch('/api/visits', { method: 'POST', headers: { 'X-Aletrain-Visit': '1' } });
+    if (!response.ok) return;
+    const data = await response.json();
+    const counter = document.querySelector('#visitCount');
+    counter.textContent = `${new Intl.NumberFormat('fr-CH').format(data.visits)} visites`;
+    counter.hidden = false;
+  } catch { /* The counter never blocks the adventure. */ }
+}
+showVisits();
 
 elements.stationSearch.addEventListener("submit", async (event) => {
   event.preventDefault();

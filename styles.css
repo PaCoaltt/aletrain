@@ -167,6 +167,17 @@ input::placeholder { color: #848a81; }
 .report-form .modal-header { margin-bottom: 0; }
 .report-form > .full-width { justify-content: center; }
 .is-spinning { animation: draw-pulse .5s ease-in-out infinite alternate; }
+.return-options { margin: 16px 0; font-size: 13px; }
+.return-options summary { cursor: pointer; color: var(--muted); }
+.return-options label { display: grid; gap: 8px; margin-top: 14px; }
+.return-options p, .return-summary p { color: var(--muted); line-height: 1.5; }
+.return-summary { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; }
+.return-summary ol { padding-left: 18px; font-size: 12px; line-height: 1.6; }
+.duration-control select { max-width: 100%; width: 100%; white-space: normal; margin-top: 8px; }
+.visit-count { font-size: 11px; color: var(--muted); white-space: nowrap; }
+.departure-side small { display: block; font-size: 10px; color: var(--muted); }
+.footer small { font-size: 10px; }
+.footer a { color: inherit; }
 @keyframes draw-pulse { to { opacity: .6; } }
 @media (min-width: 1440px) { .intro { padding-top: 52px; padding-bottom: 40px; } }
 @media (max-width: 1000px) {

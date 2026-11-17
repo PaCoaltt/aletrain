@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
@@ -35,18 +35,20 @@
             <section class="station-section" aria-labelledby="departureTitle">
               <div class="step-heading"><span class="step-number">01</span><h2 id="departureTitle">Le départ</h2></div>
               <form class="station-search" id="stationSearch">
-                <label class="small-label" for="stationInput">Gare de départ</label>
+                <label class="small-label" for="stationInput">Gare ou arrêt de départ</label>
                 <div class="input-row"><input id="stationInput" name="station" type="search" placeholder="Lausanne, Bern, Zürich HB…" autocomplete="off" /><button class="search-button" type="submit" aria-label="Chercher une gare"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 5 5" stroke="currentColor" stroke-width="1.8"/></svg></button></div>
               </form>
               <button class="location-button" id="locateButton" type="button"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 1v4m0 14v4M1 12h4m14 0h4" stroke="currentColor" stroke-width="1.5"/></svg>Utiliser ma position</button>
-              <label class="duration-control wait-control" for="waitInput">Attente maximale en gare<span class="duration-row"><input id="waitInput" name="wait" type="number" min="1" step="1" value="45" inputmode="numeric" /><span>minutes avant le départ</span></span><small>Seuls les trains partant dans ce délai pourront être tirés au sort.</small></label>
+              <label class="duration-control" for="adventureInput">Ton aventure<select id="adventureInput"><option value="train">Sur les rails · trains</option><option value="water">Au fil de l’eau · trains et bateaux</option><option value="mountain">Prendre de la hauteur · trains et transports à câble</option><option value="all">Tous les horizons · trains, bus, trams, bateaux et transports à câble</option></select><small>Le tirage utilise les modes disponibles à cet arrêt. Pour un bateau ou un transport à câble, cherche aussi un débarcadère ou une station. Une variante autorise ces modes sans garantir leur présence.</small></label>
+              <label class="duration-control wait-control" for="waitInput">Attente maximale en gare<span class="duration-row"><input id="waitInput" name="wait" type="number" min="1" step="1" value="45" inputmode="numeric" /><span>minutes avant le départ</span></span><small>Seuls les transports partant dans ce délai pourront être tirés au sort.</small></label>
               <div class="status-line" id="statusLine" role="status">Cherche une gare ou utilise ta position pour commencer.</div>
             </section>
             <section class="draw-section" aria-label="Tirage du voyage">
               <div class="draw-card main-draw">
-                <div class="draw-header"><div class="step-heading"><span class="step-number">02</span><h2>Le train</h2></div><span class="draw-pill" id="platformCount">0 quai</span></div>
+                <div class="draw-header"><div class="step-heading"><span class="step-number">02</span><h2>Le transport</h2></div><span class="draw-pill" id="platformCount">0 point</span></div>
                 <label class="duration-control" for="durationInput">Combien de temps as-tu ?<span class="duration-row"><input id="durationInput" name="duration" type="number" min="1" step="1" placeholder="45" inputmode="numeric" /><span>minutes de trajet</span></span><small id="durationHint">Indique une durée pour activer le tirage.</small></label>
-                <button class="draw-button" id="drawPlatformButton" type="button" disabled>Choisir mon train <span aria-hidden="true">→</span></button>
+                <details class="return-options"><summary>Prévoir mon retour</summary><label for="returnInput">De retour au point de départ avant le (heure suisse)<input id="returnInput" type="datetime-local" /></label><label for="stayInput">Temps minimum sur place, en minutes<input id="stayInput" type="number" min="5" max="1440" step="1" value="30" /></label><p>Laisse la date vide pour un aller simple. Le retour utilise les modes de ton aventure et sera vérifié au tirage de l’arrêt. Les retards peuvent évoluer.</p></details>
+                <button class="draw-button" id="drawPlatformButton" type="button" disabled>Choisir mon transport <span aria-hidden="true">→</span></button>
                 <div class="result-board" id="trainResult" aria-live="polite"><span class="result-kicker">Ton train</span><strong>Aucun train tiré au sort</strong><p>Choisis une gare et une durée pour lancer le tirage.</p></div>
               </div>
               <div class="draw-card stops-card">
@@ -83,7 +85,7 @@
           <div class="departure-list" id="departureList"><article class="empty-state"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M8 4h16v22H8zM8 16h16M16 4v12M11 29l2-3m8 3-2-3" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="21" r="1" fill="currentColor"/><circle cx="20" cy="21" r="1" fill="currentColor"/></svg><div><strong>Aucun départ chargé</strong><p>Sélectionne une gare pour consulter ses prochains trains.</p></div></article></div>
         </section>
       </main>
-      <footer class="footer"><span>alétrain.</span><p>Une gare, un train, un arrêt au hasard.</p><span class="footer-country">Sur le réseau suisse <span aria-hidden="true">+</span></span></footer>
+      <footer class="footer"><span>alétrain.</span><p>Une gare, un train, un arrêt au hasard.<br /><small>Horaires : <a href="https://opentransportdata.swiss/fr/">opentransportdata.swiss</a> via <a href="https://transport.opendata.ch/">transport.opendata.ch</a> · Carte et lieux : OpenStreetMap</small></p><span class="visit-count" id="visitCount" hidden title="Visites approximatives : un navigateur compté au plus une fois par période de 30 minutes. Aucun historique individuel conservé."></span><span class="footer-country">Sur le réseau suisse <span aria-hidden="true">+</span></span></footer>
     </div>
     <dialog class="report-modal" id="profileModal" aria-labelledby="profileTitle">
       <div class="modal-header"><div><span class="small-label">Alétrain</span><h2 id="profileTitle">Mon profil</h2></div><button class="icon-button" id="closeProfileModal" type="button" aria-label="Fermer le profil">×</button></div>
@@ -92,7 +94,7 @@
     </dialog>
     <dialog class="report-modal" id="reportModal" aria-labelledby="reportTitle"><form class="report-form" id="reportForm" method="dialog"><div class="modal-header"><div><span class="small-label">Signalement</span><strong id="reportTitle">Train</strong></div><button class="icon-button" id="closeReportModal" type="button" aria-label="Fermer">×</button></div><label>Cause de la suppression<select id="reportReason" name="reason"><option value="">Non précisée</option><option value="travaux">Travaux</option><option value="cause inconnue">Cause inconnue</option><option value="accident de personnes">Accident de personnes</option><option value="retard">Retard</option></select></label><label>Durée de suppression<span class="duration-row"><input id="reportDuration" name="duration" type="number" min="1" step="1" placeholder="90" inputmode="numeric" /><span>minutes</span></span></label><p class="modal-note">Sans durée indiquée, le train est retiré pendant 1 h 30 pour ton profil.</p><button class="primary-button full-width" type="submit">Signaler le train supprimé</button></form></dialog>
     <script src="vendor/leaflet/leaflet.js"></script>
-    <script src="app.js"></script>
+    <script type="module" src="app.js"></script>
     <script type="module" src="activity-ui.js"></script>
   </body>
 </html>

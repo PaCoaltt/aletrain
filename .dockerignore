@@ -2,3 +2,5 @@
 .gitignore
 server.err.log
 server.out.log
+visits.json
+visits.json.tmp
