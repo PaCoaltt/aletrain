@@ -1,0 +1,38 @@
+name: aletrain
+services:
+  aletrain:
+    image: ${ALETRAIN_IMAGE:-ghcr.io/pacoaltt/aletrain:main}
+    container_name: aletrain
+    restart: unless-stopped
+    ports:
+      - "4173:4173"
+    environment:
+      PORT: "4173"
+      VISITS_FILE: /data/visits.json
+      REQUIRE_VISITS_FILE: "1"
+      OVERPASS_URL: ${OVERPASS_URL:-}
+    volumes:
+      - metrics:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 45s
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4173/api/health',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "3"
+volumes:
+  metrics:
+    name: ${ALETRAIN_METRICS_VOLUME:-aletrain-metrics}
+    external: true

@@ -1,5 +1,5 @@
-import { t, tx, px, setText, setHtml, formatDate, dateHtml, applyTranslations } from './i18n.js';
-import { ADVENTURES, stopTime, platformFor, cancelled, usableReturn, swissDateTime, swissTimestamp, delayMinutes, hasPrediction } from './adventure.js';
+import { t, tx, px, setText, setHtml, formatDate, dateHtml, applyTranslations } from './i18n.js?v=5';
+import { ADVENTURES, stopTime, platformFor, cancelled, usableReturn, swissDateTime, swissTimestamp, delayMinutes, hasPrediction } from './adventure.js?v=5';
 const API_ROOT = "https://transport.opendata.ch/v1";
 const SWISS_CENTER = [46.8182, 8.2275];
 const railRouteRequests = new Map();
@@ -48,6 +48,9 @@ const elements = {
 };
 
 function initMap() {
+  const mapStatus = document.querySelector('#mapStatus');
+  try {
+  if (!globalThis.L) throw new Error('Leaflet JavaScript is unavailable');
   state.map = L.map("map", {
     zoomControl: false,
     scrollWheelZoom: false,
@@ -59,19 +62,35 @@ function initMap() {
       const control = document.querySelector(selector);
       if (control) { control.title = t(key); control.setAttribute('aria-label', t(key)); }
     }
-    applyTranslations();
+    applyTranslations(state.map.getContainer());
   };
   state.map.on('popupopen', translateMapControls);
   window.addEventListener('aletrain:language', translateMapControls);
-  translateMapControls();
-
+  const failedTiles = new Set();
+  const showTileState = () => {
+    mapStatus.hidden = failedTiles.size === 0;
+    if (failedTiles.size) setText(mapStatus, 'map.tilesError');
+  };
   L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
     maxZoom: 19,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  }).addTo(state.map);
-
-  window.setTimeout(() => state.map.invalidateSize(), 120);
-  window.addEventListener("resize", () => state.map.invalidateSize());
+  }).on('tileerror', event => {
+    failedTiles.add(event.tile);
+    console.error('OpenStreetMap tile failed to load', event.error);
+    showTileState();
+  }).on('tileload', event => { failedTiles.delete(event.tile); showTileState(); })
+    .on('tileunload', event => { failedTiles.delete(event.tile); showTileState(); }).addTo(state.map);
+  translateMapControls();
+  // Leaflet already tracks window resizes. Observe only actual container size changes.
+  if (globalThis.ResizeObserver) {
+    const observer = new ResizeObserver(() => state.map.invalidateSize({ pan: false }));
+    observer.observe(document.querySelector('#map'));
+  }
+  } catch (error) {
+    console.error('Leaflet initialization failed', error);
+    setText(mapStatus, 'map.initError');
+    mapStatus.hidden = false;
+  }
 }
 
 function setStatus(key, tone = "neutral", params = {}) {
@@ -196,6 +215,7 @@ function clearRoute() {
 }
 
 function updateMap(station, journeys = []) {
+  if (!state.map) return;
   clearMarkers();
   clearRoute();
   state.map.invalidateSize();
@@ -263,6 +283,7 @@ function getRoutePoints(journey, exitStop = null) {
 }
 
 async function drawJourneyRoute(journey, exitStop = null) {
+  if (!state.map) return;
   clearRoute();
   clearMarkers();
 
@@ -867,7 +888,7 @@ function useGeolocation() {
     async (position) => {
       try {
         const { latitude, longitude } = position.coords;
-        state.map.setView([latitude, longitude], 13);
+        state.map?.setView([latitude, longitude], 13);
         setStatus('geo.station');
         const station = await findNearestStation(latitude, longitude);
         await selectStation(station);

@@ -1,0 +1,5 @@
+# Only for rolling back to an old image without /api/health. Does not change ports.
+services:
+  aletrain:
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4173/api/visits',{signal:AbortSignal.timeout(3000)}).then(async r=>{const d=await r.json();process.exit(r.ok&&Number.isSafeInteger(d.visits)&&d.visits>=0?0:1)}).catch(()=>process.exit(1))"]

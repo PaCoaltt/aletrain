@@ -4,7 +4,7 @@ import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import { catalogs, detectLanguage, translate } from '../i18n.js';
 
-test('all four catalogs have every French key and the same interpolation parameters', () => {
+test('all five catalogs have every French key and the same interpolation parameters', () => {
   const params = text => [...text.matchAll(/\{(\w+)\}/g)].map(match => match[1]).sort();
   for (const [lang, dictionary] of Object.entries(catalogs)) {
     assert.deepEqual(Object.keys(dictionary).sort(), Object.keys(catalogs.fr).sort(), lang);
@@ -21,6 +21,11 @@ test('preference wins; compatible browser languages are detected, otherwise Fren
   assert.equal(detectLanguage('invalid', ['de-CH']), 'de');
   assert.equal(detectLanguage(null, ['es-ES']), 'fr');
   assert.equal(detectLanguage(null, []), 'fr');
+  assert.equal(detectLanguage(null, ['gsw-CH']), 'gsw');
+  assert.equal(detectLanguage(null, ['de-CH']), 'de');
+  assert.equal(detectLanguage('gsw', ['fr-CH']), 'gsw');
+  assert.equal(translate('gsw', 'missing', {}, { gsw: {}, de: { missing: 'Deutsch' }, fr: { missing: 'Français' } }), 'Deutsch');
+  assert.equal(translate('gsw', 'missing', {}, { gsw: {}, de: {}, fr: { missing: 'Français' } }), 'Français');
   assert.equal(translate('de', 'missing', {}, { fr: { missing: 'Référence' }, de: {} }), 'Référence');
 });
 
@@ -67,7 +72,7 @@ test('language selector updates text, attributes, document lang and preference i
 test('all static UI text is translatable except proper names, language names and symbols', async () => {
   const source = await readFile(new URL('../index.html', import.meta.url), 'utf8');
   const allowed = new Set(['alétrain', 'alétrain.', '.', '+', '01', '02', '03', '→', 'CH',
-    'Français', 'Deutsch', 'Italiano', 'English', 'opentransportdata.swiss', 'transport.opendata.ch', 'Visites : ...']);
+    'Français', 'Deutsch', 'Schwiizerdütsch', 'Italiano', 'English', 'opentransportdata.swiss', 'transport.opendata.ch', 'Visites : ...']);
   for (const match of source.matchAll(/([^>]+)>([^<>]+)</g)) {
     const text = match[2].trim();
     if (!text || allowed.has(text)) continue;

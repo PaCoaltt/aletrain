@@ -182,5 +182,11 @@ export default {
   "zoomOut": "Zoom out",
   "closePopup": "Close",
   "departures.one": "{count} departure",
-  "departures.other": "{count} departures"
+  "departures.other": "{count} departures",
+  "map.tilesError": "Some OpenStreetMap tiles failed to load. Check your connection or possible network blocking.",
+  "map.initError": "The map could not start. Check that Leaflet loaded and consult the browser console.",
+  "visit.stale": "Counter not refreshed: showing the last received value.",
+  "visit.storageError": "The counter cannot be saved. The last received value remains visible.",
+  "visit.recordError": "Visit registration unconfirmed. Showing the last total read.",
+  "visit.translationError": "Counter translation could not start; the displayed count is still real."
 };

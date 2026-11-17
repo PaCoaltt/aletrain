@@ -7,3 +7,7 @@ visits.json.tmp
 data.json
 data.json.backup-*
 *.cleanup-*.tmp
+.audit
+backups
+.env
+*.backup-*

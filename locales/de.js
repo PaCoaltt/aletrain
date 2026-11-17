@@ -182,5 +182,11 @@ export default {
   "zoomOut": "Verkleinern",
   "closePopup": "Schliessen",
   "departures.one": "{count} Abfahrt",
-  "departures.other": "{count} Abfahrten"
+  "departures.other": "{count} Abfahrten",
+  "map.tilesError": "Einige OpenStreetMap-Kacheln können nicht geladen werden. Prüfe deine Verbindung oder eine mögliche Netzwerksperre.",
+  "map.initError": "Die Karte kann nicht starten. Prüfe, ob Leaflet geladen wurde, und die Browserkonsole.",
+  "visit.stale": "Zähler nicht aktualisiert: letzter empfangener Wert wird angezeigt.",
+  "visit.storageError": "Der Zähler kann nicht gespeichert werden. Der letzte empfangene Wert bleibt sichtbar.",
+  "visit.recordError": "Besuchsregistrierung nicht bestätigt. Angezeigt wird der zuletzt gelesene Gesamtstand.",
+  "visit.translationError": "Die Übersetzung des Zählers konnte nicht starten; die angezeigte Zahl bleibt echt."
 };

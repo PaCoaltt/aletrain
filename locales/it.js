@@ -182,5 +182,11 @@ export default {
   "zoomOut": "Riduci",
   "closePopup": "Chiudi",
   "departures.one": "{count} partenza",
-  "departures.other": "{count} partenze"
+  "departures.other": "{count} partenze",
+  "map.tilesError": "Alcune tessere OpenStreetMap non si caricano. Verifica la connessione o un eventuale blocco di rete.",
+  "map.initError": "La mappa non può avviarsi. Verifica il caricamento di Leaflet e la console del browser.",
+  "visit.stale": "Contatore non aggiornato: è mostrato l’ultimo valore ricevuto.",
+  "visit.storageError": "Impossibile salvare il contatore. L’ultimo valore ricevuto resta visibile.",
+  "visit.recordError": "Registrazione della visita non confermata. È mostrato l’ultimo totale letto.",
+  "visit.translationError": "La traduzione del contatore non si è avviata; il numero mostrato resta reale."
 };

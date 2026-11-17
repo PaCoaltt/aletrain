@@ -8,7 +8,7 @@
     <title data-i18n="title">Alétrain — Le prochain arrêt, au hasard.</title>
     <link rel="preconnect" href="https://tile.openstreetmap.org" />
     <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
-    <link rel="stylesheet" href="styles.css?v=4" />
+    <link rel="stylesheet" href="styles.css?v=5" />
   </head>
   <body>
     <div class="app-shell">
@@ -18,7 +18,7 @@
           <span>alétrain<span class="brand-dot">.</span></span>
         </a>
         <div class="topbar-actions">
-          <label class="language-control"><span class="sr-only" data-i18n="language">Langue</span><select id="languageSelect" data-i18n-aria-label="language" aria-label="Langue"><option value="fr">Français</option><option value="de">Deutsch</option><option value="it">Italiano</option><option value="en">English</option></select></label>
+          <label class="language-control"><span class="sr-only" data-i18n="language">Langue</span><select id="languageSelect" data-i18n-aria-label="language" aria-label="Langue"><option value="fr">Français</option><option value="de">Deutsch</option><option value="gsw">Schwiizerdütsch</option><option value="it">Italiano</option><option value="en">English</option></select></label>
           <span class="network-label"><span data-i18n="tagline">Au hasard, en Suisse.</span></span>
         </div>
       </header>
@@ -75,6 +75,7 @@
           </div>
           <section class="map-section" id="journeyMap" aria-label="Carte du voyage en Suisse" tabindex="-1" data-i18n-aria-label="map.label">
             <div class="map-heading"><span class="small-label"><span data-i18n="map.your">Ton voyage</span></span><span class="map-country"><span data-i18n="map.network">Réseau suisse</span> <span aria-hidden="true">CH</span></span></div>
+            <p class="map-status" id="mapStatus" role="alert" hidden><span data-i18n="map.initError">La carte ne peut pas démarrer. Vérifie le chargement de Leaflet et consulte la console du navigateur.</span></p>
             <p class="route-summary" id="routeSummary" role="status" hidden></p>
             <div class="map-frame"><div id="map" class="map"></div><button class="map-location icon-button" id="locateTopButton" type="button" aria-label="Centrer sur ma position" data-i18n-aria-label="map.center"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m21 3-6 18-4-8-8-4 18-6Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg></button></div>
             <div class="map-card" id="stationCard"><span class="station-dot" aria-hidden="true"></span><div><span class="small-label"><span data-i18n="map.start">Ton point de départ</span></span><strong id="stationName"><span data-i18n="chooseStation">Choisis ta gare de départ</span></strong><span id="stationMeta"><span data-i18n="initialBoard">Les prochains trains s’afficheront ici.</span></span></div></div>
@@ -86,11 +87,11 @@
           <div class="departure-list" id="departureList"><article class="empty-state"><svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><path d="M8 4h16v22H8zM8 16h16M16 4v12M11 29l2-3m8 3-2-3" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="21" r="1" fill="currentColor"/><circle cx="20" cy="21" r="1" fill="currentColor"/></svg><div><strong><span data-i18n="noBoard">Aucun départ chargé</span></strong><p><span data-i18n="selectStation">Sélectionne une gare pour consulter ses prochains trains.</span></p></div></article></div>
         </section>
       </main>
-      <footer class="footer"><span>alétrain.</span><p><span data-i18n="footer">Une gare, un train, un arrêt au hasard.</span><br /><small><span data-i18n="timetableCredit">Horaires :</span> <a href="https://opentransportdata.swiss/fr/">opentransportdata.swiss</a> <span data-i18n="via">via</span> <a href="https://transport.opendata.ch/">transport.opendata.ch</a> <span data-i18n="mapCredit">· Carte et lieux : OpenStreetMap</span></small></p><span class="visit-count" id="visitCount" title="Visites approximatives : un navigateur compté au plus une fois par période de 30 minutes. Aucun historique individuel conservé." data-i18n-title="visit.help"><!--visits-->Visites : ...</span><span class="footer-country"><span data-i18n="footer.network">Sur le réseau suisse</span> <span aria-hidden="true">+</span></span></footer>
+      <footer class="footer"><span>alétrain.</span><p><span data-i18n="footer">Une gare, un train, un arrêt au hasard.</span><br /><small><span data-i18n="timetableCredit">Horaires :</span> <a href="https://opentransportdata.swiss/fr/">opentransportdata.swiss</a> <span data-i18n="via">via</span> <a href="https://transport.opendata.ch/">transport.opendata.ch</a> <span data-i18n="mapCredit">· Carte et lieux : OpenStreetMap</span></small></p><span class="visit-count" id="visitCount" title="Visites approximatives : un navigateur compté au plus une fois par période de 30 minutes. Aucun historique individuel conservé." data-i18n-title="visit.help"><!--visits-->Visites : ...</span><span class="visit-status" id="visitStatus" role="status" hidden></span><span class="footer-country"><span data-i18n="footer.network">Sur le réseau suisse</span> <span aria-hidden="true">+</span></span></footer>
     </div>
     <script src="vendor/leaflet/leaflet.js"></script>
-    <script type="module" src="visit-counter.js?v=4"></script>
-    <script type="module" src="app.js?v=4"></script>
-    <script type="module" src="activity-ui.js"></script>
+    <script type="module" src="visit-counter.js?v=5"></script>
+    <script type="module" src="app-loader.js?v=5"></script>
+    <script type="module" src="activity-ui.js?v=5"></script>
   </body>
 </html>

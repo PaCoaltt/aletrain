@@ -28,6 +28,6 @@ while (queue.length) {
   const result = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' });
   if (result.status !== 0) throw new Error(result.stderr);
   const source = await readFile(file, 'utf8');
-  for (const match of source.matchAll(/from ['"](\.[^'"]+)['"]/g)) queue.push(resolve(dirname(file), match[1]));
+  for (const match of source.matchAll(/(?:from\s*|import\s*\()['"](\.[^'"]+)['"]/g)) queue.push(resolve(dirname(file), match[1].split('?')[0]));
 }
-console.log(`Production assets validated: ${checked.size} files; ${reference.length} messages in 4 languages. No bundling or native dependencies required.`);
+console.log(`Production assets validated: ${checked.size} files; ${reference.length} messages in ${Object.keys(catalogs).length} languages. No bundling or native dependencies required.`);

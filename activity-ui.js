@@ -1,5 +1,5 @@
-import { chooseActivity, filterActivities, validActivityLocation, walkingMinutes } from "./activities-common.js";
-import { setText } from './i18n.js';
+import { chooseActivity, filterActivities, validActivityLocation, walkingMinutes } from "./activities-common.js?v=5";
+import { setText } from './i18n.js?v=5';
 
 const section = document.querySelector("#activitySection");
 const intro = document.querySelector("#activityIntro");

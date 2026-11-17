@@ -26,7 +26,10 @@ test('HTTP counts visits, serves cached public assets and keeps private files in
     });
     const request = (path, options) => fetch(`http://127.0.0.1:${port}${path}`, options);
     const before = await request('/api/visits');
-    assert.deepEqual(await before.json(), { visits: 0 });
+    assert.equal((await before.json()).visits, 0);
+    const health = await request('/api/health');
+    assert.equal(health.status, 200);
+    assert.equal((await health.json()).storage, 'ok');
     assert.equal((await request('/api/visits', { method: 'POST' })).status, 403);
     const first = await request('/api/visits', { method: 'POST', headers: { 'X-Aletrain-Visit': '1' } });
     assert.equal((await first.json()).visits, 1);
@@ -39,7 +42,7 @@ test('HTTP counts visits, serves cached public assets and keeps private files in
     const html = await home.text();
     assert.match(html, /id="visitCount"[^>]*>1 visites<\/span>/);
     assert.doesNotMatch(html, /id="visitCount"[^>]*\bhidden\b|profileModal|reportModal|openProfileButton/);
-    assert.match(html, /visit-counter.js\?v=4/);
+    assert.match(html, /visit-counter.js\?v=5/);
     assert.equal(home.headers.get('cache-control'), 'no-store');
     for (const path of ['/api/profiles', '/api/sessions', '/api/reports', '/api/reports/example/confirm', '/api/telegram/webhook']) {
       for (const method of ['GET', 'POST']) assert.equal((await request(path, { method })).status, 404, `${method} ${path}`);
@@ -47,7 +50,7 @@ test('HTTP counts visits, serves cached public assets and keeps private files in
     for (const path of ['/data.json', '/visits.json', '/server.mjs', '/.git/config', '/README.md']) {
       assert.equal((await request(path)).status, 404, path);
     }
-    for (const path of ['/', '/app.js', '/visit-counter.js', '/i18n.js', '/locales/fr.js', '/locales/de.js', '/locales/it.js', '/locales/en.js', '/adventure.js', '/activity-ui.js', '/activities-common.js', '/styles.css', '/vendor/leaflet/leaflet.js']) {
+    for (const path of ['/', '/app-loader.js', '/app.js', '/visit-counter.js', '/i18n.js', '/locales/fr.js', '/locales/de.js', '/locales/it.js', '/locales/en.js', '/locales/gsw.js', '/adventure.js', '/activity-ui.js', '/activities-common.js', '/styles.css', '/vendor/leaflet/leaflet.js']) {
       const response = await request(path);
       assert.equal(response.status, 200, path);
       assert.ok(response.headers.get('cache-control'));

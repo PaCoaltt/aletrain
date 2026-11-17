@@ -1,11 +1,13 @@
-import fr from './locales/fr.js';
-import de from './locales/de.js';
-import it from './locales/it.js';
-import en from './locales/en.js';
-export const catalogs = { fr, de, it, en };
+import fr from './locales/fr.js?v=5';
+import de from './locales/de.js?v=5';
+import it from './locales/it.js?v=5';
+import en from './locales/en.js?v=5';
+import gsw from './locales/gsw.js?v=5';
+export const catalogs = { fr, de, it, en, gsw };
 
-export const languages = ['fr', 'de', 'it', 'en'];
-export const locales = { fr: 'fr-CH', de: 'de-CH', it: 'it-CH', en: 'en-GB' };
+export const languages = ['fr', 'de', 'it', 'en', 'gsw'];
+// Swiss German UI, Swiss German numeric/date conventions; never infer gsw from de-CH.
+export const locales = { fr: 'fr-CH', de: 'de-CH', it: 'it-CH', en: 'en-GB', gsw: 'de-CH' };
 export function detectLanguage(saved, preferred = []) {
   if (languages.includes(saved)) return saved;
   for (const candidate of preferred) {
@@ -16,7 +18,7 @@ export function detectLanguage(saved, preferred = []) {
 }
 export function translate(lang, key, params = {}, dictionaries = catalogs) {
   if (/\.(one|other)$/.test(key) && typeof params.count === 'number') key = key.replace(/\.(one|other)$/, `.${new Intl.PluralRules(locales[lang] || locales.fr).select(params.count)}`);
-  const template = dictionaries[lang]?.[key] ?? dictionaries.fr?.[key] ?? key;
+  const template = dictionaries[lang]?.[key] ?? (lang === 'gsw' ? dictionaries.de?.[key] : undefined) ?? dictionaries.fr?.[key] ?? key;
   return template.replace(/\{(\w+)\}/g, (_, name) => {
     const value = params[name];
     if (typeof value === 'number') return new Intl.NumberFormat(locales[lang] || locales.fr).format(value);

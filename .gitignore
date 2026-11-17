@@ -2,3 +2,6 @@
 /visits.json.tmp
 /data.json.backup-*
 /*.cleanup-*.tmp
+/.audit/
+/backups/
+/.env

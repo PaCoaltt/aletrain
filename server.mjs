@@ -8,14 +8,9 @@ import { createVisitCounter } from './visits.mjs';
 
 const root = resolve(".");
 const port = Number(process.env.PORT || 4173);
-const visits = await createVisitCounter(process.env.VISITS_FILE || join(root, 'visits.json'));
-for (const signal of ['SIGTERM', 'SIGINT']) {
-  process.once(signal, async () => {
-    try { await visits.close(); process.exit(0); }
-    catch (error) { console.error('Visits:', error.message); process.exit(1); }
-  });
-}
-const publicFiles = new Set(['index.html', 'styles.css', 'app.js', 'i18n.js', 'locales/fr.js', 'locales/de.js', 'locales/it.js', 'locales/en.js', 'visit-counter.js', 'adventure.js', 'activity-ui.js', 'activities-common.js',
+const visits = await createVisitCounter(process.env.VISITS_FILE || join(root, 'visits.json'), { requireExisting: process.env.REQUIRE_VISITS_FILE === '1' });
+const version = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')).version;
+const publicFiles = new Set(['index.html', 'styles.css', 'app-loader.js', 'app.js', 'i18n.js', 'locales/fr.js', 'locales/de.js', 'locales/it.js', 'locales/en.js', 'locales/gsw.js', 'visit-counter.js', 'adventure.js', 'activity-ui.js', 'activities-common.js',
   'vendor/leaflet/leaflet.js', 'vendor/leaflet/leaflet.css',
   'vendor/leaflet/images/layers.png', 'vendor/leaflet/images/layers-2x.png',
   'vendor/leaflet/images/marker-icon.png', 'vendor/leaflet/images/marker-icon-2x.png', 'vendor/leaflet/images/marker-shadow.png']);
@@ -45,6 +40,12 @@ async function readRequestJson(request) {
 }
 
 async function handleApi(request, response, url) {
+  if (url.pathname === '/api/health' && request.method === 'GET') {
+    response.setHeader('Cache-Control', 'no-store');
+    const storage = visits.status().storage;
+    sendJson(response, storage === 'ok' ? 200 : 503, { status: storage === 'ok' ? 'ok' : 'degraded', version, revision: process.env.APP_REVISION || 'development', storage });
+    return;
+  }
   if (url.pathname === '/api/visits' && ['GET', 'POST'].includes(request.method)) {
     response.setHeader('Cache-Control', 'no-store');
     if (request.method === 'POST') {
@@ -52,10 +53,14 @@ async function handleApi(request, response, url) {
         sendJson(response, 403, { error: 'Origine invalide.' });
         return;
       }
+      if (visits.status().storage === 'error') {
+        sendJson(response, 503, { visits: visits.count(), ...visits.status() });
+        return;
+      }
       visits.visit(request.headers.cookie);
       response.setHeader('Set-Cookie', 'aletrain_visit=1; Max-Age=1800; Path=/; HttpOnly; SameSite=Lax');
     }
-    sendJson(response, 200, { visits: visits.count() });
+    sendJson(response, 200, { visits: visits.count(), ...visits.status() });
     return;
   }
   if (request.method === "POST" && url.pathname === "/api/activities") {
@@ -91,7 +96,7 @@ async function handleApi(request, response, url) {
   sendJson(response, 404, { error: "API introuvable." });
 }
 
-createServer(async (request, response) => {
+const server = createServer(async (request, response) => {
   const url = new URL(request.url || "/", `http://${request.headers.host || "localhost"}`);
 
   try {
@@ -123,7 +128,7 @@ createServer(async (request, response) => {
       : cachedBody;
     response.writeHead(200, {
       "Content-Type": types[extname(filePath)] || "application/octet-stream",
-      'Cache-Control': requestedPath === 'index.html' ? 'no-store' : 'public, max-age=300',
+      'Cache-Control': requestedPath === 'index.html' ? 'no-store' : requestedPath.startsWith('vendor/') ? 'public, max-age=86400' : 'no-cache, must-revalidate',
       'X-Content-Type-Options': 'nosniff',
     });
     response.end(request.method === 'HEAD' ? undefined : body);
@@ -143,3 +148,12 @@ createServer(async (request, response) => {
 }).listen(port, "0.0.0.0", () => {
   console.log(`Aletrain running at http://127.0.0.1:${port}`);
 });
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.once(signal, () => {
+    server.close(async () => {
+      try { await visits.close(); process.exit(0); }
+      catch (error) { console.error('Visits:', error.message); process.exit(1); }
+    });
+    server.closeIdleConnections();
+  });
+}
