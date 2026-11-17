@@ -34,10 +34,10 @@ async function appFixture({ failBoard = false, lateReturn = false } = {}) {
       to: { station, arrival: at(lateReturn ? 240 : 120) }, transfers: 0,
       sections: [{ journey: { category: 'IR', number: '90' }, departure: { station: { name: 'Arrêt' }, departure: at(80) }, arrival: { station, arrival: at(120) } }],
     }] }) };
-    return { ok: true, json: async () => ({ reports: [], visits: 1 }) };
+    throw new Error(`Unexpected API call: ${url.pathname}`);
   };
   const context = vm.createContext({ ...adventure, URL, AbortSignal, Date, Intl, Map, Set, fetch,
-    localStorage: { getItem: () => null },
+    localStorage: { getItem: () => { throw new Error('Legacy account storage must not be read'); } },
     document: { querySelector: node, body: node('body'), addEventListener() {} },
     window: { addEventListener() {}, clearTimeout() {}, dispatchEvent: event => events.push(event) },
     CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },

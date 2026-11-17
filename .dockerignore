@@ -4,3 +4,6 @@ server.err.log
 server.out.log
 visits.json
 visits.json.tmp
+data.json
+data.json.backup-*
+*.cleanup-*.tmp

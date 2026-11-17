@@ -9,9 +9,9 @@ Les horaires viennent de `https://transport.opendata.ch/v1`, qui réutilise les
 horaires GTFS et le temps réel GTFS-RT d'opentransportdata.swiss. Les appels sont
 effectués directement depuis le navigateur, sans nouvelle clé API côté Pi.
 
-Chaque tirage recharge les départs et les signalements. Les prévisions d'heure
+Chaque tirage recharge les départs. Les prévisions d'heure
 et de quai priment sur l'horaire théorique. Une marge de 2 minutes avant le départ
-est imposée ; les suppressions connues et les signalements approuvés sont exclus.
+est imposée ; les suppressions connues des données de transport sont exclues.
 L'absence de prévision est indiquée comme « Horaire prévu » : elle ne confirme pas
 la circulation du véhicule. Un arrêt tiré plus d'une minute après la vérification
 nécessite un nouveau tirage du transport. Les annonces sur place restent à consulter.
@@ -43,7 +43,10 @@ d'analyse tiers n'est enregistré par le compteur. Les navigateurs sans cookies,
 les bots et plusieurs onglets ouverts simultanément peuvent gonfler le total :
 ce ne sont pas des visiteurs uniques et ce n'est pas un outil de protection anti-abus.
 
-Le compteur utilise `visits.json` (ou le chemin `VISITS_FILE`), séparé des profils.
+Le compteur utilise `visits.json` (ou le chemin `VISITS_FILE`). Il est affiché dès
+la réponse HTML du serveur puis actualisé par `visit-counter.js`, indépendamment
+du chargement de la carte et du tirage. Si le POST échoue, une lecture GET est
+tentée ; si le service est indisponible, le dernier nombre rendu reste visible.
 Il est écrit au maximum toutes les 30 secondes, par remplacement de fichier, et
 à l'arrêt propre du serveur. Une coupure brutale peut perdre les 30 dernières
 secondes. Avec Docker, monter un volume persistant pour conserver le compteur
@@ -64,8 +67,7 @@ Une présence dans un showcase ne permet pas de prévoir l'audience. La charge l
 plus variable reste le calcul des tracés ferroviaires, la mémoire des réseaux et
 le débit montant du Pi. Avant une mise en avant, mesurer CPU, RAM et latence sur
 le Pi avec des utilisateurs simultanés, notamment des tracés non présents en cache.
-Le compteur seul ne mesure pas ces paramètres. Le serveur actuel utilise aussi
-`scryptSync` pour les connexions de profils : en cas d'affluence ou d'abus, prévoir
+Le compteur seul ne mesure pas ces paramètres. En cas d'affluence ou d'abus, prévoir
 une limitation des requêtes sur le reverse proxy.
 
 `npm test` couvre les prévisions, les retours incompatibles, les fuseaux horaires,
@@ -131,14 +133,33 @@ docker run --rm -p 4173:4173 aletrain
 
 Puis ouvrir `http://localhost:4173`.
 
-## Validation admin des signalements via Telegram
+## Accès public et anciennes données
 
-Si vous configurez Telegram (`TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`), chaque nouveau signalement envoie un message à l'admin.
+Toute l'application est accessible directement, sans compte. Les interfaces et
+API de profils, sessions, signalements et Telegram ont été retirées. Les anciennes
+variables Telegram peuvent être retirées du déploiement ; le serveur ne les utilise
+plus. Aucune dépendance externe n'était dédiée à ces fonctionnalités : les imports
+de chiffrement et la lecture/écriture de leur base ont été supprimés.
 
-- Réponse `OK` (en répondant directement au message du bot) : le train supprimé est validé et visible pour tous les utilisateurs.
-- Réponse `NON` : le signalement est supprimé pour tout le monde.
+Le fichier `data.json` existant est conservé sans modification. Le serveur ne le lit
+plus, ne le sert pas et ne le migre pas au démarrage. Les anciennes données locales
+du navigateur restent inutilisées. Les nouvelles images Docker excluent `data.json`
+et ses sauvegardes ; conserver le fichier de l'ancien conteneur ou son volume avant
+de remplacer ce conteneur si une archive est souhaitée.
 
-Le serveur expose l'endpoint `POST /api/telegram/webhook` pour recevoir les updates Telegram (à brancher avec un webhook Telegram).
+Un script indépendant prépare le nettoyage. **Ne l'appliquer qu'après validation**,
+sur le fichier choisi et avec l'ancienne application arrêtée. L'inspection seule
+ne modifie aucun fichier et n'affiche aucun nom, mot de passe ou signalement :
+
+```bash
+node scripts/cleanup-legacy-data.mjs --file /chemin/data.json
+```
+
+Après validation, l'option `--apply` sauvegarde d'abord le fichier à côté de
+l'original, puis retire uniquement `users`, `reports` et `telegramUpdateOffset`,
+en conservant toutes les autres clés. La sauvegarde contient encore des données
+personnelles et doit rester privée. Le compteur `visits.json` est indépendant
+et n'est pas concerné. Ce script n'est jamais exécuté automatiquement.
 
 ## Lancer avec l'image Docker publiée
 

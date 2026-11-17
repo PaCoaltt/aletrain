@@ -15,9 +15,6 @@ const state = {
   platforms: new Map(),
   selectedJourney: null,
   selectedPlatform: null,
-  reports: [],
-  profile: JSON.parse(localStorage.getItem("aletrainProfile") || "null"),
-  reportTarget: null,
   revision: 0,
   busy: false,
   boardLoadedAt: 0,
@@ -38,26 +35,12 @@ const elements = {
   trainResult: document.querySelector("#trainResult"),
   stopsPreview: document.querySelector("#stopsPreview"),
   departureList: document.querySelector("#departureList"),
-  profileForm: document.querySelector("#profileForm"),
-  usernameInput: document.querySelector("#usernameInput"),
-  passwordInput: document.querySelector("#passwordInput"),
-  createProfileButton: document.querySelector("#createProfileButton"),
-  loginProfileButton: document.querySelector("#loginProfileButton"),
-  logoutButton: document.querySelector("#logoutButton"),
-  profileStatus: document.querySelector("#profileStatus"),
-  profileName: document.querySelector("#profileName"),
   durationInput: document.querySelector("#durationInput"),
   waitInput: document.querySelector("#waitInput"),
   adventureInput: document.querySelector('#adventureInput'),
   returnInput: document.querySelector('#returnInput'),
   stayInput: document.querySelector('#stayInput'),
   durationHint: document.querySelector("#durationHint"),
-  reportModal: document.querySelector("#reportModal"),
-  reportForm: document.querySelector("#reportForm"),
-  reportTitle: document.querySelector("#reportTitle"),
-  reportReason: document.querySelector("#reportReason"),
-  reportDuration: document.querySelector("#reportDuration"),
-  closeReportModal: document.querySelector("#closeReportModal"),
 };
 
 function initMap() {
@@ -80,11 +63,6 @@ function initMap() {
 function setStatus(message, tone = "neutral") {
   elements.statusLine.textContent = message;
   elements.statusLine.dataset.tone = tone;
-}
-
-function setProfileStatus(message, tone = "neutral") {
-  elements.profileStatus.textContent = message;
-  elements.profileStatus.dataset.tone = tone;
 }
 
 function setLoading(isLoading) {
@@ -136,19 +114,6 @@ function journeyDestination(journey) {
 
 function journeyDeparture(journey) {
   return stopTime(journey?.stop);
-}
-
-function journeyId(journey) {
-  return [
-    state.station?.id || journey.stop?.station?.id || "station",
-    journeyTitle(journey),
-    journeyDestination(journey),
-    journey.stop?.departure || journeyDeparture(journey) || "departure",
-  ].join("|");
-}
-
-function currentUsername() {
-  return state.profile?.username || "";
 }
 
 function getAvailableMinutes() {
@@ -445,51 +410,6 @@ async function loadStationboard(station) {
     .sort((a, b) => (journeyDeparture(a) || "").localeCompare(journeyDeparture(b) || ""));
 }
 
-async function loadReports() {
-  try {
-    const data = await fetchLocalApi("/api/reports");
-    state.reports = data.reports || [];
-  } catch {
-    state.reports = [];
-  }
-}
-
-function findReport(journey) {
-  const id = journeyId(journey);
-  return state.reports.find((report) => report.trainId === id || report.trainId?.startsWith(`${id}|`));
-}
-
-function reportIncludesUser(report, field) {
-  const username = currentUsername();
-  return Boolean(username && (report?.[field] || []).includes(username));
-}
-
-function isReportedByCurrentUser(report) {
-  return Boolean(report && report.reportedBy === currentUsername());
-}
-
-function isReportIgnoredForCurrentUser(report) {
-  return reportIncludesUser(report, "denials");
-}
-
-function isTrainHiddenForCurrentUser(journey) {
-  const report = findReport(journey);
-  return Boolean(report && reportIncludesUser(report, "confirmations"));
-}
-
-function isTrainBlockedFromDraw(journey) {
-  const report = findReport(journey);
-  if (report?.adminDecision === 'approved') return true;
-  if (!report || isReportIgnoredForCurrentUser(report)) return false;
-  return isReportedByCurrentUser(report) || reportIncludesUser(report, "confirmations");
-}
-
-function getVisibleReportForCurrentUser(journey) {
-  const report = findReport(journey);
-  if (!report || isReportIgnoredForCurrentUser(report)) return null;
-  return report;
-}
-
 function getReachableStops(journey) {
   const minutes = getAvailableMinutes();
   const remainingStops = getRemainingStops(journey).filter(stop => !cancelled(stop));
@@ -512,7 +432,7 @@ function getDrawableJourneys() {
     const platform = platformFor(journey);
     const departure = new Date(journey.stop?.prognosis?.departure || journeyDeparture(journey)).getTime();
     return (platform || !isRailJourney(journey)) && departure >= now + 2 * 60000 && departure <= latestDeparture && !cancelled(journey) &&
-      !isTrainBlockedFromDraw(journey) && getReachableStops(journey).length > 0;
+      getReachableStops(journey).length > 0;
   });
 }
 
@@ -535,23 +455,9 @@ function refreshDrawableState() {
   renderDepartures();
 }
 
-function renderProfile() {
-  const username = currentUsername();
-  document.body.classList.toggle("has-profile", Boolean(username));
-  elements.profileName.textContent = username || "Mon profil";
-  elements.logoutButton.hidden = !username;
-
-  if (username) {
-    elements.usernameInput.value = username;
-    setProfileStatus("Profil actif. Les signalements seront associés à ce nom.");
-  } else {
-    setProfileStatus("Crée ou connecte un profil pour signaler un train.");
-  }
-}
-
 function renderStation() {
   const platformTotal = state.platforms.size;
-  const trainTotal = state.stationboard.filter((journey) => !isTrainHiddenForCurrentUser(journey)).length;
+  const trainTotal = state.stationboard.length;
   const minutes = getAvailableMinutes();
   const waitMinutes = getWaitMinutes();
 
@@ -572,7 +478,7 @@ function renderStation() {
 }
 
 function renderDepartures() {
-  const journeys = state.stationboard.slice(0, 18).filter((journey) => !isTrainHiddenForCurrentUser(journey));
+  const journeys = state.stationboard.slice(0, 18);
   if (journeys.length === 0) {
     elements.departureList.innerHTML = `
       <article class="empty-state">
@@ -585,40 +491,18 @@ function renderDepartures() {
   elements.departureList.innerHTML = journeys
     .map((journey) => {
       const platform = normalizePlatform(platformFor(journey));
-      const report = getVisibleReportForCurrentUser(journey);
       const reachableStops = getReachableStops(journey);
-      const reportedByMe = isReportedByCurrentUser(report);
-      const isReported = Boolean(report);
-      const trainId = escapeHtml(journeyId(journey));
-      const reportInfo = isReported
-        ? `
-          <div class="report-info">
-            ${reportedByMe ? "Tu as signalé ce train comme supprimé." : "Ce train a été signalé comme supprimé."}
-            ${
-              reportedByMe
-                ? ""
-                : `<div class="report-actions">
-                    <button type="button" data-action="confirm-report" data-train-id="${trainId}">Confirmer</button>
-                    <button type="button" data-action="deny-report" data-train-id="${trainId}">Infirmer</button>
-                  </div>`
-            }
-          </div>
-        `
-        : "";
-
       return `
-        <article class="departure-item ${isReported ? "is-reported" : ""}">
+        <article class="departure-item">
           <span class="platform-badge">${escapeHtml(platform)}</span>
           <div class="departure-main">
             <strong>${escapeHtml(journeyTitle(journey))} → ${escapeHtml(journeyDestination(journey))}</strong>
             <span>${escapeHtml(journey.stop?.station?.name || state.station.name)}</span>
-            <span>${reachableStops.length} arrêt${reachableStops.length > 1 ? "s" : ""} dans la durée</span>
-            ${reportInfo}
+            <span>${getReachableStops(journey).length} arrêt${reachableStops.length > 1 ? "s" : ""} dans la durée</span>
           </div>
           <div class="departure-side">
             <time class="departure-time">${formatTime(journeyDeparture(journey))}</time>
             <small>${cancelled(journey) ? 'Supprimé' : journey.stop?.prognosis?.departure ? 'Prévision actualisée' : 'Horaire prévu'}</small>
-            <button class="report-button" type="button" data-action="open-report" data-train-id="${trainId}" aria-label="Signaler ce train supprimé">!</button>
           </div>
         </article>
       `;
@@ -660,7 +544,6 @@ async function selectStation(station) {
 
   try {
     const board = await loadStationboard(station);
-    await loadReports();
     if (revision !== state.revision) return;
     state.station = station;
     state.stationboard = board;
@@ -737,7 +620,6 @@ async function drawPlatformAndTrain() {
   try {
     returnSettings();
     const board = await loadStationboard(state.station);
-    await loadReports();
     if (revision !== state.revision) return;
     state.stationboard = board;
     state.boardLoadedAt = Date.now();
@@ -765,7 +647,6 @@ async function drawPlatformAndTrain() {
         <span class="train-chip">Départ ${formatTime(journeyDeparture(journey))}</span>
         <span class="train-chip">${journey.stop?.prognosis?.departure ? 'Prévision actualisée' : 'Horaire prévu'}</span>
         <span class="train-chip">${reachableStops.length} arrêts possibles</span>
-        <button class="report-button inline-report" type="button" data-action="open-report" data-train-id="${escapeHtml(journeyId(journey))}">Signaler supprimé</button>
       </div>
       <a class="map-link" href="#journeyMap">Voir le trajet sur la carte <span aria-hidden="true">↗</span></a>
     `;
@@ -908,113 +789,6 @@ window.addEventListener("aletrain:activity-selected", event => {
   state.map.fitBounds(bounds.extend(place.coords), { padding: [48, 48], maxZoom: 14 });
 });
 
-function findJourneyById(trainId) {
-  return state.stationboard.find((journey) => journeyId(journey) === trainId);
-}
-
-function openReportModal(trainId) {
-  if (!currentUsername()) {
-    setProfileStatus("Connecte ou crée un profil avant de signaler un train.", "warning");
-    document.querySelector("#profileModal").showModal();
-    elements.usernameInput.focus();
-    return;
-  }
-
-  const journey = findJourneyById(trainId);
-  if (!journey) return;
-
-  state.reportTarget = journey;
-  elements.reportTitle.textContent = `${journeyTitle(journey)} → ${journeyDestination(journey)}`;
-  elements.reportReason.value = "";
-  elements.reportDuration.value = "";
-  elements.reportModal.showModal();
-}
-
-async function submitReport(event) {
-  event.preventDefault();
-  if (!state.reportTarget) return;
-
-  const journey = state.reportTarget;
-  const durationValue = Number(elements.reportDuration.value);
-  const durationMinutes = Number.isFinite(durationValue) && durationValue > 0 ? durationValue : null;
-
-  try {
-    await fetchLocalApi("/api/reports", {
-      method: "POST",
-      body: JSON.stringify({
-        trainId: journeyId(journey),
-        reportedBy: currentUsername(),
-        reason: elements.reportReason.value,
-        durationMinutes,
-        trainTitle: journeyTitle(journey),
-        destination: journeyDestination(journey),
-        departureLabel: formatTime(journeyDeparture(journey)),
-        stationName: state.station?.name,
-      }),
-    });
-
-    elements.reportModal.close();
-    await loadReports();
-    resetDraws();
-    refreshDrawableState();
-    setStatus("Train signalé comme supprimé. Il est retiré de tes tirages.", "warning");
-  } catch (error) {
-    setStatus(error.message || "Signalement impossible.", "error");
-  }
-}
-
-async function voteReport(trainId, action) {
-  if (!currentUsername()) {
-    setProfileStatus("Connecte ou crée un profil pour confirmer ou infirmer.", "warning");
-    return;
-  }
-
-  try {
-    await fetchLocalApi(`/api/reports/${encodeURIComponent(trainId)}/${action}`, {
-      method: "POST",
-      body: JSON.stringify({ username: currentUsername() }),
-    });
-    await loadReports();
-    resetDraws();
-    refreshDrawableState();
-    setStatus(
-      action === "confirm"
-        ? "Merci, suppression confirmée. Ce train est retiré pour ton profil."
-        : "Merci, information infirmée. L'alerte est masquée pour ton profil.",
-    );
-  } catch (error) {
-    setStatus(error.message || "Action impossible.", "error");
-  }
-}
-
-async function submitProfile(event, mode) {
-  event.preventDefault();
-  const username = elements.usernameInput.value.trim();
-  const password = elements.passwordInput.value;
-  const path = mode === "create" ? "/api/profiles" : "/api/sessions";
-
-  try {
-    const data = await fetchLocalApi(path, {
-      method: "POST",
-      body: JSON.stringify({ username, password }),
-    });
-    state.profile = { username: data.username };
-    localStorage.setItem("aletrainProfile", JSON.stringify(state.profile));
-    elements.passwordInput.value = "";
-    renderProfile();
-    refreshDrawableState();
-  } catch (error) {
-    setProfileStatus(error.message || "Profil indisponible.", "error");
-  }
-}
-
-function logoutProfile() {
-  state.profile = null;
-  localStorage.removeItem("aletrainProfile");
-  renderProfile();
-  refreshDrawableState();
-}
-
 function useGeolocation() {
   if (!navigator.geolocation) {
     setStatus("La géolocalisation n'est pas disponible dans ce navigateur.", "error");
@@ -1051,9 +825,6 @@ function useGeolocation() {
 }
 
 elements.locateButton.addEventListener("click", useGeolocation);
-const profileModal = document.querySelector("#profileModal");
-document.querySelector("#openProfileButton").addEventListener("click", () => profileModal.showModal());
-document.querySelector("#closeProfileModal").addEventListener("click", () => profileModal.close());
 elements.locateTopButton.addEventListener("click", useGeolocation);
 elements.drawPlatformButton.addEventListener("click", drawPlatformAndTrain);
 elements.drawStopsButton.addEventListener("click", drawStops);
@@ -1076,18 +847,6 @@ elements.adventureInput.addEventListener('change', () => {
   if (state.station) selectStation(state.station);
 });
 
-async function showVisits() {
-  try {
-    const response = await fetch('/api/visits', { method: 'POST', headers: { 'X-Aletrain-Visit': '1' } });
-    if (!response.ok) return;
-    const data = await response.json();
-    const counter = document.querySelector('#visitCount');
-    counter.textContent = `${new Intl.NumberFormat('fr-CH').format(data.visits)} visites`;
-    counter.hidden = false;
-  } catch { /* The counter never blocks the adventure. */ }
-}
-showVisits();
-
 elements.stationSearch.addEventListener("submit", async (event) => {
   event.preventDefault();
   const query = elements.stationInput.value.trim();
@@ -1109,23 +868,4 @@ elements.stationSearch.addEventListener("submit", async (event) => {
   }
 });
 
-elements.profileForm.addEventListener("submit", (event) => submitProfile(event, "login"));
-elements.createProfileButton.addEventListener("click", (event) => submitProfile(event, "create"));
-elements.loginProfileButton.addEventListener("click", (event) => submitProfile(event, "login"));
-elements.logoutButton.addEventListener("click", logoutProfile);
-elements.reportForm.addEventListener("submit", submitReport);
-elements.closeReportModal.addEventListener("click", () => elements.reportModal.close());
-
-document.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-action]");
-  if (!button) return;
-
-  const trainId = button.dataset.trainId;
-  if (button.dataset.action === "open-report") openReportModal(trainId);
-  if (button.dataset.action === "confirm-report") voteReport(trainId, "confirm");
-  if (button.dataset.action === "deny-report") voteReport(trainId, "deny");
-});
-
-renderProfile();
-loadReports();
 initMap();

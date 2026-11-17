@@ -1,2 +1,4 @@
 /visits.json
 /visits.json.tmp
+/data.json.backup-*
+/*.cleanup-*.tmp
