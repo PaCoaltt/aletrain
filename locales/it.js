@@ -7,6 +7,7 @@ export default {
   "journey.minimum": "Tempo minimo per il cambio",
   "journey.maximum": "Durata massima, attese incluse",
   "journey.number": "{number}",
+  "journey.transferMaximum": "Tempo massimo per il cambio",
   "journey.delay": "Ritardo: +{minutes} min",
   "journey.platform": "Binario {platform}",
   "journey.nextDay": "+{days} g",

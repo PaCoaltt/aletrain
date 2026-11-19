@@ -80,13 +80,32 @@
               <div class="step-heading"><span class="step-number">02</span><h2 id="journeyTitle" data-i18n="journey.title">Voyage aléatoire</h2></div>
               <label class="duration-control" for="journeyTrainCount">
                 <span data-i18n="journey.trains">Nombre de trains</span>
-                <span class="journey-count-slider">
+                <span class="journey-slider">
                   <input type="range" id="journeyTrainCount" min="2" max="5" step="1" value="2" />
-                  <span class="journey-count-value" id="journeyTrainCountValue" aria-hidden="true" data-i18n="journey.number" data-i18n-params="{&quot;number&quot;:2}">2</span>
+                  <span class="journey-slider-value" id="journeyTrainCountValue" aria-hidden="true" data-i18n="journey.number" data-i18n-params="{&quot;number&quot;:2}">2</span>
                 </span>
               </label>
-              <label class="duration-control" for="journeyTransfer"><span data-i18n="journey.minimum">Correspondance minimale</span><input type="range" id="journeyTransfer" min="2" max="30" value="5" /><span class="journey-range-value" id="journeyTransferValue" aria-hidden="true" data-i18n="journey.minutes" data-i18n-params="{&quot;minutes&quot;:5}">5 min</span></label>
-              <label class="duration-control" for="journeyDuration"><span data-i18n="journey.maximum">Durée maximale, attentes comprises</span><input type="range" id="journeyDuration" min="30" max="360" step="15" value="180" /><span class="journey-range-value" id="journeyDurationValue" aria-hidden="true" data-i18n="journey.minutes" data-i18n-params="{&quot;minutes&quot;:180}">180 min</span></label>
+              <label class="duration-control" for="journeyTransfer">
+                <span data-i18n="journey.minimum">Correspondance minimale</span>
+                <span class="journey-slider">
+                  <input type="range" id="journeyTransfer" min="2" max="30" step="1" value="5" />
+                  <span class="journey-slider-value" id="journeyTransferValue" aria-hidden="true" data-i18n="journey.minutes" data-i18n-params="{&quot;minutes&quot;:5}">5 min</span>
+                </span>
+              </label>
+              <label class="duration-control" for="journeyMaxTransfer">
+                <span data-i18n="journey.transferMaximum">Correspondance maximale</span>
+                <span class="journey-slider">
+                  <input type="range" id="journeyMaxTransfer" min="2" max="30" step="1" value="15" />
+                  <span class="journey-slider-value" id="journeyMaxTransferValue" aria-hidden="true" data-i18n="journey.minutes" data-i18n-params="{&quot;minutes&quot;:15}">15 min</span>
+                </span>
+              </label>
+              <label class="duration-control" for="journeyDuration">
+                <span data-i18n="journey.maximum">Durée maximale, attentes comprises</span>
+                <span class="journey-slider">
+                  <input type="range" id="journeyDuration" min="30" max="360" step="15" value="180" />
+                  <span class="journey-slider-value" id="journeyDurationValue" aria-hidden="true" data-i18n="journey.minutes" data-i18n-params="{&quot;minutes&quot;:180}">180 min</span>
+                </span>
+              </label>
               <button class="draw-button" id="generateJourney" type="button" disabled><span data-i18n="journey.generate">Tirer un voyage</span><span aria-hidden="true">→</span></button>
               <p class="status-line journey-message" id="journeyMessage" role="status" data-i18n="journey.choose">Choisis une gare de départ pour lancer le tirage.</p>
               <div class="result-board" id="journeyResult" aria-live="polite" hidden></div>

@@ -7,6 +7,7 @@ export default {
   "journey.minimum": "Minimum transfer time",
   "journey.maximum": "Maximum journey time, including waits",
   "journey.number": "{number}",
+  "journey.transferMaximum": "Maximum transfer time",
   "journey.delay": "Delay: +{minutes} min",
   "journey.platform": "Platform {platform}",
   "journey.nextDay": "+{days} d",

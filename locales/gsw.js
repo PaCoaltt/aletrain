@@ -7,6 +7,7 @@ export default {
   "journey.minimum": "Mindeschtümschtiigzyt",
   "journey.maximum": "Maximali Reisduur mit Wartezyte",
   "journey.number": "{number}",
+  "journey.transferMaximum": "Maximali Ümschtiigzyt",
   "journey.delay": "Verspötig: +{minutes} Min.",
   "journey.platform": "Gleis {platform}",
   "journey.nextDay": "+{days} T.",

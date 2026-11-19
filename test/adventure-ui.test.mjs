@@ -58,15 +58,20 @@ async function appFixture({ failBoard = false, lateReturn = false, startTime } =
   });
   const source = (await readFile(new URL('../app.js', import.meta.url), 'utf8'))
     .replace(/^import .*\r?\n/gm, '').replace(/\ninitMap\(\);/, '\n');
-  Object.assign(node('#journeyTrainCount'), { min: '2', max: '5', value: '2' });
+  for (const [id, min, max, value] of [
+    ['#journeyTrainCount', '2', '5', '2'],
+    ['#journeyTransfer', '2', '30', '5'],
+    ['#journeyMaxTransfer', '2', '30', '15'],
+    ['#journeyDuration', '30', '360', '180'],
+  ]) {
+    Object.assign(node(id), { min, max, value, parentElement: node(`${id} wrapper`) });
+  }
   vm.runInContext(`${source}\nupdateMap = () => {}; drawJourneyRoute = () => {};\n` +
     'globalThis.app = { state, drawPlatformAndTrain, drawStops, resetDraws, refreshBoard, contextDocument: document };', context);
   node('#durationInput').value = '60';
   node('#waitInput').value = '45';
   node('#adventureInput').value = 'all';
   node('#stayInput').value = '30';
-  node('#journeyTransfer').value = '5';
-  node('#journeyDuration').value = '180';
   const deadline = adventure.swissDateTime(now + 180 * 60000);
   node('#returnInput').value = `${deadline.date}T${deadline.time}`;
   context.app.state.station = station;
@@ -178,7 +183,22 @@ test('random journey builds a complete train-only itinerary and refreshes its fi
   const count = app.node('#journeyTrainCount');
   const bubble = app.node('#journeyTrainCountValue');
   assert.equal(bubble.textContent, '2');
-  assert.equal(bubble.style.getPropertyValue('--slider-position'), '0');
+  assert.equal(count.parentElement.style.getPropertyValue('--slider-position'), '0');
+  const min = app.node('#journeyTransfer');
+  const max = app.node('#journeyMaxTransfer');
+  assert.equal(max.value, '15');
+  min.value = '20';
+  min.listeners.input();
+  assert.equal(max.value, '20');
+  assert.equal(app.node('#journeyMaxTransferValue').textContent, '20 min');
+  max.value = '4';
+  max.listeners.input();
+  assert.equal(min.value, '4');
+  assert.equal(app.node('#journeyTransferValue').textContent, '4 min');
+  min.value = '5';
+  min.listeners.input();
+  max.value = '6';
+  max.listeners.input();
   Object.assign(app.journey.passList[1], { platform: '2', prognosis: { platform: '4' } });
   const [a] = app.journey.passList.slice(1).map(stop => stop.station);
   const c = { id: 'C', name: 'Arrêt C' };
@@ -204,6 +224,7 @@ test('random journey builds a complete train-only itinerary and refreshes its fi
   const trip = app.state.randomJourney;
   assert.deepEqual(trip.legs.map(leg => leg.journey.number), ['90', '102', '202']);
   assert.equal(trip.legs[1].departure - trip.legs[0].arrival, 5 * 60000);
+  assert.equal(trip.legs[2].departure - trip.legs[1].arrival, 6 * 60000);
   assert.ok(trip.legs.at(-1).arrival - trip.startedAt <= 75 * 60000);
   assert.equal(app.node('#simpleDraw').hidden, true);
   assert.match(app.node('#journeyResult').innerHTML, /Lausanne → Arrêt D/);
@@ -227,6 +248,7 @@ test('random journey builds a complete train-only itinerary and refreshes its fi
   assert.equal(app.node('#journeyTrainCount').value, '3');
   assert.equal(bubble.textContent, '3');
   assert.equal(app.node('#journeyTransfer').value, '5');
+  assert.equal(app.node('#journeyMaxTransfer').value, '6');
   assert.equal(app.node('#journeyDuration').value, '75');
   assert.match(app.node('#journeyResult').innerHTML, /Lausanne → Arrêt D/);
   assert.match(app.node('#journeyResult').innerHTML, /2 min de correspondance/);
@@ -236,15 +258,20 @@ test('random journey builds a complete train-only itinerary and refreshes its fi
   count.value = '5';
   count.listeners.input();
   assert.equal(bubble.textContent, '5');
-  assert.equal(bubble.style.getPropertyValue('--slider-position'), '1');
+  assert.equal(count.parentElement.style.getPropertyValue('--slider-position'), '1');
   app.boards.set('origin', [app.journey]);
   await app.node('#regenerateJourney').listeners.click();
   assert.equal(app.state.randomJourney.legs.length, 3);
   assert.equal(app.node('#journeyTrainCount').value, '5');
 });
 
-test('an impossible transfer reports failure without displaying a partial journey', async () => {
+test('a transfer over the maximum reports failure without displaying a partial journey', async () => {
   const app = await appFixture();
+  const { station } = app.journey.passList[1];
+  app.boards.set(station.id, [{
+    category: 'S', number: '1', to: 'Arrêt C', stop: { station, departure: app.at(46) },
+    passList: [{ station }, { station: { id: 'C', name: 'Arrêt C' }, arrival: app.at(58) }],
+  }]);
   app.node('#drawMode').value = 'journey';
   await app.node('#generateJourney').listeners.click();
   assert.equal(app.state.randomJourney, null);
@@ -252,4 +279,7 @@ test('an impossible transfer reports failure without displaying a partial journe
   assert.equal(app.node('#journeyResult').innerHTML, '');
   assert.equal(app.node('#regenerateJourney').disabled, true);
   assert.equal(app.calls.length, 3);
+  app.node('#journeyMaxTransfer').value = '16';
+  await app.node('#generateJourney').listeners.click();
+  assert.equal(app.state.randomJourney.legs.length, 2);
 });

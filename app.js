@@ -58,8 +58,10 @@ const elements = {
   journeyTrainCount: document.querySelector('#journeyTrainCount'),
   journeyTrainCountValue: document.querySelector('#journeyTrainCountValue'),
   journeyTransfer: document.querySelector('#journeyTransfer'),
+  journeyMaxTransfer: document.querySelector('#journeyMaxTransfer'),
   journeyDuration: document.querySelector('#journeyDuration'),
   journeyTransferValue: document.querySelector('#journeyTransferValue'),
+  journeyMaxTransferValue: document.querySelector('#journeyMaxTransferValue'),
   journeyDurationValue: document.querySelector('#journeyDurationValue'),
   generateJourney: document.querySelector('#generateJourney'),
   regenerateJourney: document.querySelector('#regenerateJourney'),
@@ -553,16 +555,22 @@ function cancelJourneyRequest() {
   updateJourneyButtons();
 }
 
-function updateJourneySliders() {
-  const count = elements.journeyTrainCount;
-  const position = (Number(count.value) - Number(count.min)) / (Number(count.max) - Number(count.min));
-  setText(elements.journeyTrainCountValue, 'journey.number', { number: Number(count.value) });
-  elements.journeyTrainCountValue.style.setProperty('--slider-position', String(position));
-  for (const [input, value] of [[elements.journeyTransfer, elements.journeyTransferValue], [elements.journeyDuration, elements.journeyDurationValue]]) {
-    const minutes = Number(input.value);
-    setText(value, 'journey.minutes', { minutes });
-    input.setAttribute('aria-valuetext', value.textContent);
-  }
+const journeySliders = new Map([
+  [elements.journeyTrainCount, elements.journeyTrainCountValue],
+  [elements.journeyTransfer, elements.journeyTransferValue],
+  [elements.journeyMaxTransfer, elements.journeyMaxTransferValue],
+  [elements.journeyDuration, elements.journeyDurationValue],
+]);
+
+function updateJourneySlider(input) {
+  const amount = Number(input.value);
+  const min = Number(input.min);
+  const position = (amount - min) / (Number(input.max) - min);
+  const bubble = journeySliders.get(input);
+  const unit = input === elements.journeyTrainCount ? 'number' : 'minutes';
+  setText(bubble, `journey.${unit}`, { [unit]: amount });
+  input.setAttribute('aria-valuetext', bubble.textContent);
+  input.parentElement.style.setProperty('--slider-position', String(position));
 }
 
 function renderJourneyStop(station, stop, timestamp, firstDay) {
@@ -632,10 +640,11 @@ function updateRandomJourneyFromBoard(board) {
     departure: Number.isFinite(departure) && !invalidTimes ? departure : first.departure,
     arrival: Number.isFinite(arrival) && !invalidTimes ? arrival : first.arrival,
   };
+  const connectionWait = (trip.legs[1].departure - updated.arrival) / 60000;
   const needsRecheck = cancelled(current) || cancelled(stop) || invalidTimes ||
     Boolean(current.passList?.length && !stop) ||
     updated.departure - trip.startedAt > trip.settings.waitMinutes * 60000 ||
-    trip.legs[1].departure - updated.arrival < trip.settings.transferMinutes * 60000;
+    connectionWait < trip.settings.transferMinutes || connectionWait > trip.settings.maxTransferMinutes;
   renderRandomJourney(updated, needsRecheck);
 }
 
@@ -668,6 +677,7 @@ function drawRandomJourneyRoute() {
 async function drawRandomJourney(settings = {
   trainCount: Number(elements.journeyTrainCount.value),
   transferMinutes: Number(elements.journeyTransfer.value),
+  maxTransferMinutes: Number(elements.journeyMaxTransfer.value),
   maxMinutes: Number(elements.journeyDuration.value),
   waitMinutes: getWaitMinutes(),
 }) {
@@ -1162,9 +1172,16 @@ elements.generateJourney.addEventListener('click', () => drawRandomJourney());
 elements.regenerateJourney.addEventListener('click', () => {
   if (state.randomJourney) drawRandomJourney(state.randomJourney.settings);
 });
-for (const slider of [elements.journeyTrainCount, elements.journeyTransfer, elements.journeyDuration]) {
+for (const slider of journeySliders.keys()) {
   slider.addEventListener('input', () => {
-    updateJourneySliders();
+    updateJourneySlider(slider);
+    const min = elements.journeyTransfer;
+    const max = elements.journeyMaxTransfer;
+    if ((slider === min || slider === max) && Number(min.value) > Number(max.value)) {
+      const opposite = slider === min ? max : min;
+      opposite.value = slider.value;
+      updateJourneySlider(opposite);
+    }
     cancelJourneyRequest();
   });
 }
@@ -1211,11 +1228,11 @@ elements.stationSearch.addEventListener("submit", async (event) => {
 
 initMap();
 syncJourneyMode();
-updateJourneySliders();
+journeySliders.forEach((_, input) => updateJourneySlider(input));
 window.addEventListener('aletrain:language', () => {
   refreshDrawableState();
   applyTranslations();
-  updateJourneySliders();
+  journeySliders.forEach((_, input) => updateJourneySlider(input));
 });
 window.setInterval(refreshBoard, 30000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshBoard(); });

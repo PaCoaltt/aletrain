@@ -115,18 +115,19 @@ function trainOptions(board, station, earliest, latest, deadline, visited, previ
   return shuffle(options);
 }
 
-export async function findRandomJourney(station, { trainCount, transferMinutes, maxMinutes, waitMinutes, startedAt }, loadBoard, signal) {
+export async function findRandomJourney(station, { trainCount, transferMinutes, maxTransferMinutes, maxMinutes, waitMinutes, startedAt }, loadBoard, signal) {
   if (!Number.isInteger(trainCount) || trainCount < 2 || trainCount > 5 ||
-      ![transferMinutes, maxMinutes, waitMinutes, startedAt].every(Number.isFinite) ||
-      transferMinutes < 0 || maxMinutes <= 0 || waitMinutes <= 0) return null;
+      ![transferMinutes, maxTransferMinutes, maxMinutes, waitMinutes, startedAt].every(Number.isFinite) ||
+      transferMinutes < 0 || maxTransferMinutes < transferMinutes || maxMinutes <= 0 || waitMinutes <= 0) return null;
   const deadline = startedAt + maxMinutes * MINUTE;
-  const transfer = transferMinutes * MINUTE;
+  const minTransfer = transferMinutes * MINUTE;
+  const maxTransfer = maxTransferMinutes * MINUTE;
   const firstLatest = startedAt + waitMinutes * MINUTE;
   const boards = new Map();
   let branches = 0;
   let requestError;
 
-  async function search(from, earliest, legs, visited) {
+  async function search(from, earliest, latest, legs, visited) {
     signal?.throwIfAborted();
     if (earliest >= deadline || branches >= MAX_BRANCHES) return null;
     const key = JSON.stringify([String(from.id), legs.length ? Math.floor(earliest / MINUTE) : null]);
@@ -140,7 +141,7 @@ export async function findRandomJourney(station, { trainCount, transferMinutes, 
       });
       boards.set(key, board);
     }
-    const options = trainOptions(boards.get(key), from, earliest, legs.length ? deadline : firstLatest, deadline, visited, legs.at(-1));
+    const options = trainOptions(boards.get(key), from, earliest, latest, deadline, visited, legs.at(-1));
     // Try one exit per train before spending more of the budget on the same train.
     for (let index = 0; options.some(exits => index < exits.length); index++) {
       for (const exits of options) {
@@ -149,7 +150,7 @@ export async function findRandomJourney(station, { trainCount, transferMinutes, 
         if (++branches > MAX_BRANCHES) return null;
         const path = [...legs, leg];
         if (path.length === trainCount) return path;
-        const next = await search(leg.arrivalStop.station, leg.arrival + transfer, path,
+        const next = await search(leg.arrivalStop.station, leg.arrival + minTransfer, leg.arrival + maxTransfer, path,
           new Set([...visited, ...leg.stops.map(stop => String(stop.station.id))]));
         if (next) return next;
       }
@@ -157,7 +158,7 @@ export async function findRandomJourney(station, { trainCount, transferMinutes, 
     return null;
   }
 
-  const legs = await search(station, startedAt + 2 * MINUTE, [], new Set([String(station.id)]));
+  const legs = await search(station, startedAt + 2 * MINUTE, firstLatest, [], new Set([String(station.id)]));
   if (!legs && requestError) throw requestError;
   return legs;
 }

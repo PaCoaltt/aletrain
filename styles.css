@@ -66,21 +66,30 @@ input::placeholder { color: #848a81; }
 .duration-row input { width: 82px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .duration-control small { color: var(--muted); font-size: 12px; line-height: 1.4; }
 .duration-control input[type="range"] { padding: 0; accent-color: var(--red); }
-.journey-range-value { color: var(--muted); font-variant-numeric: tabular-nums; }
-.journey-count-slider { --thumb-size: 24px; position: relative; display: block; padding-top: 24px; }
-.journey-count-slider input { appearance: none; display: block; height: 44px; margin: 0; border: 0; background: transparent; }
-.journey-count-slider input::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: var(--line); }
-.journey-count-slider input::-moz-range-track { height: 4px; border-radius: 4px; background: var(--line); }
-.journey-count-slider input::-webkit-slider-thumb { appearance: none; width: var(--thumb-size); height: var(--thumb-size); margin-top: -10px; border: 0; border-radius: 50%; background: var(--red); }
-.journey-count-slider input::-moz-range-thumb { width: var(--thumb-size); height: var(--thumb-size); border: 0; border-radius: 50%; background: var(--red); }
-.journey-count-value {
+.journey-slider {
+  --thumb-size: 24px;
+  --bubble-size: 64px;
+  --rail-height: 6px;
+  --progress: calc(var(--thumb-size) / 2 + (100% - var(--thumb-size)) * var(--slider-position, 0));
+  --rail-fill: linear-gradient(to right, var(--red) var(--progress), var(--line) var(--progress));
+  position: relative;
+  display: block;
+  padding: 24px calc((var(--bubble-size) - var(--thumb-size)) / 2) 0;
+}
+.journey-slider input { appearance: none; display: block; height: 44px; margin: 0; border: 0; background: transparent; transition: none; }
+.journey-slider input::-webkit-slider-runnable-track { height: var(--rail-height); border-radius: 4px; background: var(--rail-fill); }
+.journey-slider input::-moz-range-track { height: var(--rail-height); border-radius: 4px; background: var(--rail-fill); }
+.journey-slider input::-webkit-slider-thumb { appearance: none; width: var(--thumb-size); height: var(--thumb-size); margin-top: calc((var(--rail-height) - var(--thumb-size)) / 2); border: 0; border-radius: 50%; background: var(--red); }
+.journey-slider input::-moz-range-thumb { width: var(--thumb-size); height: var(--thumb-size); border: 0; border-radius: 50%; background: var(--red); }
+.journey-slider-value {
   position: absolute;
   top: 3px;
-  left: calc(var(--thumb-size) / 2 + (100% - var(--thumb-size)) * var(--slider-position, 0));
+  left: calc(var(--bubble-size) / 2 + (100% - var(--bubble-size)) * var(--slider-position, 0));
   transform: translateX(-50%);
   display: grid;
   place-items: center;
-  width: var(--thumb-size);
+  min-width: var(--thumb-size);
+  padding-inline: 6px;
   height: var(--thumb-size);
   border-radius: 6px;
   background: var(--ink);

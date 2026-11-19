@@ -7,6 +7,7 @@ export default {
   "journey.minimum": "Correspondance minimale",
   "journey.maximum": "Durée maximale, attentes comprises",
   "journey.number": "{number}",
+  "journey.transferMaximum": "Correspondance maximale",
   "journey.delay": "Retard : +{minutes} min",
   "journey.platform": "Voie {platform}",
   "journey.nextDay": "+{days} j",

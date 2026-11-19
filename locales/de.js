@@ -7,6 +7,7 @@ export default {
   "journey.minimum": "Mindestumsteigezeit",
   "journey.maximum": "Maximale Reisedauer inklusive Wartezeiten",
   "journey.number": "{number}",
+  "journey.transferMaximum": "Maximale Umsteigezeit",
   "journey.delay": "Verspätung: +{minutes} Min.",
   "journey.platform": "Gleis {platform}",
   "journey.nextDay": "+{days} T.",
