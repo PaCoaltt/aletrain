@@ -39,11 +39,12 @@
                 <div class="input-row"><input id="stationInput" name="station" type="search" placeholder="Lausanne, Bern, Zürich HB…" autocomplete="off" /><button class="search-button" type="submit" aria-label="Chercher une gare" data-i18n-aria-label="search"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 5 5" stroke="currentColor" stroke-width="1.8"/></svg></button></div>
               </form>
               <button class="location-button" id="locateButton" type="button"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="1.5"/><circle cx="12" cy="12" r="2" fill="currentColor"/><path d="M12 1v4m0 14v4M1 12h4m14 0h4" stroke="currentColor" stroke-width="1.5"/></svg><span data-i18n="locate">Utiliser ma position</span></button>
+              <label class="duration-control wait-control" for="drawMode"><span data-i18n="journey.mode">Mode de tirage</span><select id="drawMode"><option value="simple" data-i18n="journey.simple">Tirage simple</option><option value="journey" data-i18n="journey.title">Voyage aléatoire</option></select></label>
               <label class="duration-control" for="adventureInput"><span data-i18n="adventure">Ton aventure</span><select id="adventureInput"><option value="train" data-i18n="mode.train">Sur les rails · trains</option><option value="water" data-i18n="mode.water">Au fil de l’eau · trains et bateaux</option><option value="mountain" data-i18n="mode.mountain">Prendre de la hauteur · trains et transports à câble</option><option value="all" data-i18n="mode.all">Tous les horizons · trains, bus, trams, bateaux et transports à câble</option></select><small><span data-i18n="mode.help">Le tirage utilise les modes disponibles à cet arrêt. Pour un bateau ou un transport à câble, cherche aussi un débarcadère ou une station. Une variante autorise ces modes sans garantir leur présence.</span></small></label>
               <label class="duration-control wait-control" for="waitInput"><span data-i18n="wait">Attente maximale en gare</span><span class="duration-row"><input id="waitInput" name="wait" type="number" min="1" step="1" value="45" inputmode="numeric" /><span><span data-i18n="wait.unit">minutes avant le départ</span></span></span><small><span data-i18n="wait.help">Seuls les transports partant dans ce délai pourront être tirés au sort.</span></small></label>
               <div class="status-line" id="statusLine" role="status"><span data-i18n="start">Cherche une gare ou utilise ta position pour commencer.</span></div>
             </section>
-            <section class="draw-section" aria-label="Tirage du voyage" data-i18n-aria-label="draw.label">
+            <section class="draw-section" id="simpleDraw" aria-label="Tirage du voyage" data-i18n-aria-label="draw.label">
               <div class="draw-card main-draw">
                 <div class="draw-header"><div class="step-heading"><span class="step-number">02</span><h2><span data-i18n="transport">Le transport</span></h2></div><span class="draw-pill" id="platformCount"><span data-i18n="points.other" data-i18n-params="{&quot;count&quot;:0}">0 point</span></span></div>
                 <label class="duration-control" for="durationInput"><span data-i18n="duration">Combien de temps as-tu ?</span><span class="duration-row"><input id="durationInput" name="duration" type="number" min="1" step="1" placeholder="45" inputmode="numeric" /><span><span data-i18n="duration.unit">minutes de trajet</span></span></span><small id="durationHint"><span data-i18n="duration.help">Indique une durée pour activer le tirage.</span></small></label>
@@ -58,6 +59,7 @@
                 <button class="secondary-button full-width" id="drawStopsButton" type="button" disabled><span data-i18n="draw.stop">Choisir mon arrêt</span> <span aria-hidden="true">→</span></button>
               </div>
             </section>
+            <div id="simpleActivities">
             <section class="activity-section" id="activitySection" aria-labelledby="activityTitle" hidden>
               <div class="draw-header"><h2 id="activityTitle"><span data-i18n="activity.title">Et sur place ?</span></h2><span class="draw-pill"><span data-i18n="optional">Facultatif</span></span></div>
               <p class="activity-intro" id="activityIntro"><span data-i18n="activity.intro">Une idée à découvrir près de ta gare d’arrivée.</span></p>
@@ -72,6 +74,20 @@
               </details>
               <div class="activity-result" id="activityResult" role="status" aria-live="polite"></div>
               <button class="secondary-button full-width" id="drawActivityButton" type="button"><span data-i18n="activity.find">Trouver une idée</span> <span aria-hidden="true">→</span></button>
+            </section>
+            </div>
+            <section class="draw-card" id="journeyDraw" aria-labelledby="journeyTitle" hidden>
+              <div class="step-heading"><span class="step-number">02</span><h2 id="journeyTitle" data-i18n="journey.title">Voyage aléatoire</h2></div>
+              <label class="duration-control" for="journeyTrainCount"><span data-i18n="journey.trains">Nombre de trains</span><select id="journeyTrainCount"><option value="2" data-i18n="journey.number" data-i18n-params="{&quot;number&quot;:2}">2</option><option value="3" data-i18n="journey.number" data-i18n-params="{&quot;number&quot;:3}">3</option><option value="4" data-i18n="journey.number" data-i18n-params="{&quot;number&quot;:4}">4</option><option value="5" data-i18n="journey.number" data-i18n-params="{&quot;number&quot;:5}">5</option></select></label>
+              <label class="duration-control" for="journeyTransfer"><span data-i18n="journey.minimum">Correspondance minimale</span><input type="range" id="journeyTransfer" min="2" max="30" value="5" /><span class="journey-range-value" id="journeyTransferValue" aria-hidden="true" data-i18n="journey.minutes" data-i18n-params="{&quot;minutes&quot;:5}">5 min</span></label>
+              <label class="duration-control" for="journeyDuration"><span data-i18n="journey.maximum">Durée maximale, attentes comprises</span><input type="range" id="journeyDuration" min="30" max="360" step="15" value="180" /><span class="journey-range-value" id="journeyDurationValue" aria-hidden="true" data-i18n="journey.minutes" data-i18n-params="{&quot;minutes&quot;:180}">180 min</span></label>
+              <button class="draw-button" id="generateJourney" type="button" disabled><span data-i18n="journey.generate">Tirer un voyage</span><span aria-hidden="true">→</span></button>
+              <p class="status-line journey-message" id="journeyMessage" role="status" data-i18n="journey.choose">Choisis une gare de départ pour lancer le tirage.</p>
+              <div class="result-board" id="journeyResult" aria-live="polite" hidden></div>
+              <div class="journey-actions" id="journeyActions" hidden>
+                <a class="map-link" id="journeyMapLink" href="#journeyMap" hidden><span data-i18n="map.seeMine">Voir mon trajet sur la carte</span></a>
+                <button class="secondary-button full-width" id="regenerateJourney" type="button" disabled><span data-i18n="journey.again">Nouveau voyage avec les mêmes critères</span><span aria-hidden="true">→</span></button>
+              </div>
             </section>
           </div>
           <section class="map-section" id="journeyMap" aria-label="Carte du voyage en Suisse" tabindex="-1" data-i18n-aria-label="map.label">

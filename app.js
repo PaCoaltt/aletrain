@@ -1,5 +1,5 @@
-import { t, tx, px, setText, setHtml, formatDate, dateHtml, applyTranslations } from './i18n.js?v=5';
-import { ADVENTURES, stopTime, platformFor, cancelled, usableReturn, swissDateTime, swissTimestamp, delayMinutes, hasPrediction } from './adventure.js?v=5';
+import { t, tx, px, plural, setText, setHtml, formatDate, dateHtml, applyTranslations } from './i18n.js?v=5';
+import { ADVENTURES, stopTime, platformFor, cancelled, usableReturn, swissDateTime, swissTimestamp, delayMinutes, hasPrediction, findRandomJourney, journeyStopTimestamp } from './adventure.js?v=5';
 const API_ROOT = "https://transport.opendata.ch/v1";
 const SWISS_CENTER = [46.8182, 8.2275];
 const railRouteRequests = new Map();
@@ -16,6 +16,10 @@ const state = {
   platforms: new Map(),
   selectedJourney: null,
   selectedPlatform: null,
+  selectedStop: null,
+  randomJourney: null,
+  journeyRequest: null,
+  journeyMarkup: '',
   revision: 0,
   busy: false,
   boardLoadedAt: 0,
@@ -46,6 +50,22 @@ const elements = {
   returnInput: document.querySelector('#returnInput'),
   stayInput: document.querySelector('#stayInput'),
   durationHint: document.querySelector("#durationHint"),
+  drawMode: document.querySelector('#drawMode'),
+  simpleDraw: document.querySelector('#simpleDraw'),
+  simpleActivities: document.querySelector('#simpleActivities'),
+  adventureControl: document.querySelector('label[for="adventureInput"]'),
+  journeyDraw: document.querySelector('#journeyDraw'),
+  journeyTrainCount: document.querySelector('#journeyTrainCount'),
+  journeyTransfer: document.querySelector('#journeyTransfer'),
+  journeyDuration: document.querySelector('#journeyDuration'),
+  journeyTransferValue: document.querySelector('#journeyTransferValue'),
+  journeyDurationValue: document.querySelector('#journeyDurationValue'),
+  generateJourney: document.querySelector('#generateJourney'),
+  regenerateJourney: document.querySelector('#regenerateJourney'),
+  journeyMessage: document.querySelector('#journeyMessage'),
+  journeyResult: document.querySelector('#journeyResult'),
+  journeyActions: document.querySelector('#journeyActions'),
+  journeyMapLink: document.querySelector('#journeyMapLink'),
 };
 
 function initMap() {
@@ -101,6 +121,8 @@ function setStatus(key, tone = "neutral", params = {}) {
 
 function setLoading(isLoading) {
   state.loading = isLoading;
+  if (isLoading) cancelJourneyRequest();
+  updateJourneyButtons();
   elements.locateButton.disabled = isLoading;
   elements.locateTopButton.disabled = isLoading;
   elements.stationInput.disabled = isLoading;
@@ -180,7 +202,7 @@ function travelMinutesToStop(journey, stop) {
 
 function getStationCoordinates(station) {
   const coord = station?.coordinate || station?.coordinates;
-  if (!coord) return null;
+  if (coord?.x == null || coord?.y == null) return null;
 
   let x = Number(coord.x);
   let y = Number(coord.y);
@@ -399,7 +421,7 @@ async function drawJourneyRoute(journey, exitStop = null) {
   }
 }
 
-async function fetchJson(path, params) {
+async function fetchJson(path, params, signal) {
   const url = new URL(`${API_ROOT}${path}`);
   Object.entries(params).forEach(([key, value]) => {
     if (Array.isArray(value)) {
@@ -409,7 +431,8 @@ async function fetchJson(path, params) {
     }
   });
 
-  const response = await fetch(url, { signal: AbortSignal.timeout(15000), cache: 'no-store' });
+  const timeout = AbortSignal.timeout(15000);
+  const response = await fetch(url, { signal: signal ? AbortSignal.any([timeout, signal]) : timeout, cache: 'no-store' });
   if (!response.ok) {
     throw Object.assign(new Error('error.api'), { key: 'error.api', params: { status: response.status } });
   }
@@ -445,12 +468,14 @@ async function searchStation(query) {
   return (data.stations || []).find((station) => station.id && station.name);
 }
 
-async function loadStationboard(station) {
+async function loadStationboard(station, { transports = ADVENTURES[elements.adventureInput.value] || ADVENTURES.train, earliest, signal } = {}) {
+  const local = earliest === undefined ? null : swissDateTime(earliest);
   const data = await fetchJson("/stationboard", {
     id: station.id,
     limit: 40,
-    "transportations[]": ADVENTURES[elements.adventureInput.value] || ADVENTURES.train,
-  });
+    datetime: local ? `${local.date} ${local.time}` : undefined,
+    "transportations[]": transports,
+  }, signal);
 
   return (data.stationboard || [])
     .filter((journey) => journey.stop)
@@ -489,6 +514,7 @@ async function refreshBoard() {
   state.stationboard = board;
   recordBoardReceipt();
   refreshDrawableState();
+  updateRandomJourneyFromBoard(board);
 }
 
 function selectedJourneyNeedsRecheck() {
@@ -504,6 +530,178 @@ function updateDrawStopsButton() {
   const needsRecheck = selectedJourneyNeedsRecheck();
   elements.drawRecheck.hidden = !needsRecheck;
   elements.drawStopsButton.disabled = state.loading || state.busy || !state.selectedJourney || needsRecheck;
+}
+
+function updateJourneyButtons() {
+  elements.drawMode.disabled = state.loading || state.busy;
+  elements.generateJourney.disabled = state.loading || !state.station || Boolean(state.journeyRequest);
+  elements.regenerateJourney.disabled = elements.generateJourney.disabled || !state.randomJourney;
+}
+
+function setJourneyMessage(key = state.station ? null : 'journey.choose', tone = 'neutral') {
+  elements.journeyMessage.hidden = !key;
+  if (key) setText(elements.journeyMessage, key);
+  elements.journeyMessage.dataset.tone = tone;
+}
+
+function cancelJourneyRequest() {
+  if (!state.journeyRequest) return;
+  state.journeyRequest.abort();
+  state.journeyRequest = null;
+  setJourneyMessage();
+  updateJourneyButtons();
+}
+
+function updateJourneySliders() {
+  for (const [input, value] of [[elements.journeyTransfer, elements.journeyTransferValue], [elements.journeyDuration, elements.journeyDurationValue]]) {
+    const minutes = Number(input.value);
+    setText(value, 'journey.minutes', { minutes });
+    input.setAttribute('aria-valuetext', value.textContent);
+  }
+}
+
+function renderRandomJourney(firstLeg, needsRecheck = false) {
+  const trip = state.randomJourney;
+  elements.journeyResult.hidden = !trip;
+  elements.journeyActions.hidden = !trip;
+  if (!trip) {
+    state.journeyMarkup = '';
+    setHtml(elements.journeyResult, '');
+    return;
+  }
+  const legs = firstLeg ? [firstLeg, ...trip.legs.slice(1)] : trip.legs;
+  const finalLeg = legs.at(-1);
+  const minutes = Math.ceil((finalLeg.arrival - trip.startedAt) / 60000);
+  const time = timestamp => dateHtml(new Date(timestamp).toISOString(), 'datetime');
+  const markup = `
+    <strong>${escapeHtml(legs[0].from.name)} → ${escapeHtml(finalLeg.arrivalStop.station.name)}</strong>
+    <p>${tx('journey.total', { minutes })}</p>
+    ${needsRecheck ? `<p class="status-line" data-tone="warning">${tx('journey.recheck')}</p>` : ''}
+    <ol class="journey-legs">${legs.map((leg, index) => {
+      const previous = legs[index - 1];
+      const wait = previous ? Math.floor((leg.departure - previous.arrival) / 60000) : 0;
+      return `<li>
+        ${previous ? `<p>${wait < 0 ? tx('journey.missed') : tx('journey.change', { minutes: wait })}</p>` : ''}
+        <h3>${journeyTitleHtml(leg.journey)}</h3>
+        <p>${escapeHtml(leg.from.name)} · ${time(leg.departure)}<br>
+          ${escapeHtml(leg.arrivalStop.station.name)} · ${time(leg.arrival)}</p>
+        <p>${renderStopStatus(leg.journey.stop, leg.journey)} · ${renderStopStatus(leg.arrivalStop, null, 'arrival')}</p>
+      </li>`;
+    }).join('')}</ol>
+    <p>${tx('journey.notice')}</p>`;
+  if (markup === state.journeyMarkup) return;
+  state.journeyMarkup = markup;
+  setHtml(elements.journeyResult, markup);
+}
+
+function updateRandomJourneyFromBoard(board) {
+  const trip = state.randomJourney;
+  if (!trip) return;
+  const first = trip.legs[0];
+  const current = board.find(journey => serviceKey(journey) === serviceKey(first.journey));
+  if (!current) return;
+  const stop = current.passList?.find(item => String(item.station?.id) === String(first.arrivalStop.station.id));
+  const departure = journeyStopTimestamp(current.stop);
+  const arrival = journeyStopTimestamp(stop, 'arrival');
+  const invalidTimes = Number.isFinite(departure) && Number.isFinite(arrival) && arrival <= departure;
+  const updated = {
+    ...first,
+    journey: current,
+    arrivalStop: stop || first.arrivalStop,
+    departure: Number.isFinite(departure) && !invalidTimes ? departure : first.departure,
+    arrival: Number.isFinite(arrival) && !invalidTimes ? arrival : first.arrival,
+  };
+  const needsRecheck = cancelled(current) || cancelled(stop) || invalidTimes ||
+    Boolean(current.passList?.length && !stop) ||
+    updated.departure - trip.startedAt > trip.settings.waitMinutes * 60000 ||
+    trip.legs[1].departure - updated.arrival < trip.settings.transferMinutes * 60000;
+  renderRandomJourney(updated, needsRecheck);
+}
+
+function drawRandomJourneyRoute() {
+  const trip = state.randomJourney;
+  const summary = document.querySelector('#routeSummary');
+  elements.journeyMapLink.hidden = true;
+  summary.hidden = true;
+  if (!state.map || !state.station) return;
+  updateMap(state.station);
+  if (!trip) return;
+  const lines = trip.legs.map(leg => [getStationCoordinates(leg.from), ...leg.stops.map(stop => getStationCoordinates(stop.station))]);
+  if (lines.some(line => !line[0] || !line.at(-1))) return;
+  clearMarkers();
+  state.routeLayer = L.layerGroup().addTo(state.map);
+  const line = L.polyline(lines.map(points => points.filter(Boolean)), {
+    color: '#b93224', weight: 5, dashArray: '6 8',
+  }).addTo(state.routeLayer);
+  const stations = [trip.legs[0].from, ...trip.legs.map(leg => leg.arrivalStop.station)];
+  for (const station of stations) {
+    L.circleMarker(getStationCoordinates(station), { radius: 6, color: '#b93224', fillColor: '#faf9f5', fillOpacity: 1 })
+      .bindPopup(escapeHtml(station.name)).addTo(state.routeLayer);
+  }
+  state.map.fitBounds(line.getBounds(), { padding: [35, 35], maxZoom: 12 });
+  setText(summary, 'route.indicative', { title: `${stations[0].name} → ${stations.at(-1).name}` });
+  summary.hidden = false;
+  elements.journeyMapLink.hidden = false;
+}
+
+async function drawRandomJourney(settings = {
+  trainCount: Number(elements.journeyTrainCount.value),
+  transferMinutes: Number(elements.journeyTransfer.value),
+  maxMinutes: Number(elements.journeyDuration.value),
+  waitMinutes: getWaitMinutes(),
+}) {
+  if (state.loading || !state.station || state.journeyRequest || elements.drawMode.value !== 'journey') return;
+  if (!settings.waitMinutes) {
+    setJourneyMessage('wait.invalid', 'warning');
+    elements.waitInput.focus();
+    return;
+  }
+  const station = state.station;
+  const request = new AbortController();
+  const signal = AbortSignal.any([request.signal, AbortSignal.timeout(25000)]);
+  const startedAt = Date.now();
+  state.journeyRequest = request;
+  updateJourneyButtons();
+  setJourneyMessage('journey.search');
+  try {
+    const legs = await findRandomJourney(station, { ...settings, startedAt },
+      (from, earliest) => loadStationboard(from, { transports: ADVENTURES.train, earliest, signal }), signal);
+    if (state.journeyRequest !== request) return;
+    if (!legs || legs[0].departure <= Date.now()) {
+      setJourneyMessage('journey.none', 'warning');
+      return;
+    }
+    state.randomJourney = { legs, settings, startedAt };
+    renderRandomJourney();
+    drawRandomJourneyRoute();
+    setJourneyMessage();
+  } catch {
+    if (state.journeyRequest === request) setJourneyMessage(signal.aborted ? 'journey.timeout' : 'journey.error', 'warning');
+  } finally {
+    if (state.journeyRequest === request) {
+      state.journeyRequest = null;
+      updateJourneyButtons();
+    }
+  }
+}
+
+function syncJourneyMode() {
+  const multiTrain = elements.drawMode.value === 'journey';
+  elements.simpleDraw.hidden = multiTrain;
+  elements.simpleActivities.hidden = multiTrain;
+  elements.adventureControl.hidden = multiTrain;
+  elements.journeyDraw.hidden = !multiTrain;
+  if (!state.station) return;
+  if (multiTrain) {
+    state.activityMarker?.remove();
+    drawRandomJourneyRoute();
+  } else {
+    cancelJourneyRequest();
+    document.querySelector('#routeSummary').hidden = true;
+    if (state.selectedJourney) drawJourneyRoute(state.selectedJourney, state.selectedStop);
+    else updateMap(state.station, state.stationboard);
+    if (state.map) state.activityMarker?.addTo(state.map);
+  }
 }
 
 function getReachableStops(journey) {
@@ -547,14 +745,16 @@ function groupByPlatform(journeys) {
 
 function refreshDrawableState() {
   state.platforms = groupByPlatform(getDrawableJourneys());
-  renderStation();
-  renderDepartures();
+  const multiTrain = elements.drawMode.value === 'journey';
+  const board = multiTrain ? state.stationboard.filter(isRailJourney) : state.stationboard;
+  renderStation(board.length, multiTrain);
+  renderDepartures(board, multiTrain);
   updateDrawStopsButton();
+  updateJourneyButtons();
 }
 
-function renderStation() {
+function renderStation(trainTotal, multiTrain) {
   const platformTotal = state.platforms.size;
-  const trainTotal = state.stationboard.length;
   const minutes = getAvailableMinutes();
   const waitMinutes = getWaitMinutes();
 
@@ -563,7 +763,8 @@ function renderStation() {
     !state.station
       ? t('board.choose')
       : trainTotal > 0
-      ? t('board.meta', { departures: { key: 'departures', count: trainTotal }, points: { key: 'points', count: platformTotal } })
+      ? (multiTrain ? plural('departures', trainTotal) :
+        t('board.meta', { departures: { key: 'departures', count: trainTotal }, points: { key: 'points', count: platformTotal } }))
       : t('board.empty');
   elements.platformCount.textContent = t(`points.${platformTotal === 1 ? 'one' : 'other'}`, { count: platformTotal });
   elements.drawPlatformButton.disabled = state.busy || platformTotal === 0;
@@ -574,8 +775,8 @@ function renderStation() {
       : t('duration.help');
 }
 
-function renderDepartures() {
-  const journeys = state.stationboard.slice(0, 18);
+function renderDepartures(board, multiTrain) {
+  const journeys = board.slice(0, 18);
   if (journeys.length === 0) {
     setHtml(elements.departureList, `
       <article class="empty-state">
@@ -588,14 +789,14 @@ function renderDepartures() {
   elements.departureList.innerHTML = journeys
     .map((journey) => {
       const platform = normalizePlatform(platformFor(journey));
-      const reachableStops = getReachableStops(journey);
+      const stops = multiTrain ? '' : `<span>${tx('withinDuration', { stops: { key: 'stops', count: getReachableStops(journey).length } })}</span>`;
       return `
         <article class="departure-item">
           <span class="platform-badge">${platform === '__unknown__' ? tx('boardingUnknown') : escapeHtml(platform)}</span>
           <div class="departure-main">
             <strong>${journeyTitleHtml(journey)} → ${journeyDestinationHtml(journey)}</strong>
             <span>${escapeHtml(journey.stop?.station?.name || state.station.name)}</span>
-            <span>${tx('withinDuration', { stops: { key: 'stops', count: reachableStops.length } })}</span>
+            ${stops}
           </div>
           <div class="departure-side">
             <time class="departure-time">${formatTime(journeyDeparture(journey))}</time>
@@ -613,10 +814,13 @@ function resetDraws() {
   window.clearTimeout(state.drawTimer);
   elements.drawPlatformButton.classList.remove("is-spinning");
   window.dispatchEvent(new CustomEvent("aletrain:destination", { detail: null }));
-  clearRoute();
-  document.querySelector("#routeSummary").hidden = true;
+  if (elements.drawMode.value !== 'journey') {
+    clearRoute();
+    document.querySelector("#routeSummary").hidden = true;
+  }
   state.selectedJourney = null;
   state.selectedPlatform = null;
+  state.selectedStop = null;
   updateDrawStopsButton();
   setText(elements.stopCount, 'stops.other', { count: 0 });
   setHtml(elements.trainResult, `
@@ -642,12 +846,18 @@ async function selectStation(station) {
   try {
     const board = await loadStationboard(station);
     if (revision !== state.revision) return;
+    if (state.station?.id !== station.id) {
+      state.randomJourney = null;
+      renderRandomJourney();
+    }
     state.station = station;
     state.stationboard = board;
     recordBoardReceipt();
 
     refreshDrawableState();
-    updateMap(station, board);
+    if (elements.drawMode.value === 'journey') drawRandomJourneyRoute();
+    else updateMap(station, board);
+    setJourneyMessage();
 
     if (board.length === 0) {
       setStatus('board.empty', "warning");
@@ -706,6 +916,7 @@ async function drawPlatformAndTrain() {
   resetDraws();
   const revision = state.revision;
   state.busy = true;
+  updateJourneyButtons();
   elements.drawPlatformButton.disabled = true;
   elements.drawPlatformButton.classList.add("is-spinning");
   setHtml(elements.trainResult, `
@@ -784,6 +995,7 @@ async function drawStops() {
   if (reachableStops.length === 0) return;
   const revision = state.revision;
   state.busy = true;
+  state.selectedStop = null;
   refreshDrawableState();
   window.dispatchEvent(new CustomEvent('aletrain:destination', { detail: null }));
   clearRoute();
@@ -860,6 +1072,7 @@ async function drawStops() {
     <a class="map-link" href="#journeyMap">${tx('map.seeMine')}<span aria-hidden="true">↗</span></a>
   `);
 
+  state.selectedStop = destinationStop;
   window.dispatchEvent(new CustomEvent("aletrain:destination", {
     detail: { name: destinationStop.station.name, coords: getStationCoordinates(destinationStop.station) },
   }));
@@ -873,7 +1086,9 @@ window.addEventListener("aletrain:activity-selected", event => {
   if (!place || !state.map) return;
   state.activityMarker = L.marker(place.coords, {
     icon: L.divIcon({ className: "activity-marker", html: "<span aria-hidden=\"true\">↗</span>", iconSize: [30, 30], iconAnchor: [15, 15] }),
-  }).bindPopup(`<strong>${escapeHtml(place.name)}</strong><br>${tx('map.activity')}`).addTo(state.map);
+  }).bindPopup(`<strong>${escapeHtml(place.name)}</strong><br>${tx('map.activity')}`);
+  if (elements.drawMode.value === 'journey') return;
+  state.activityMarker.addTo(state.map);
   const routeLine = state.routeLayer?.getLayers().find(layer => layer instanceof L.Polyline);
   const bounds = routeLine ? routeLine.getBounds() : L.latLngBounds([place.coords]);
   state.map.fitBounds(bounds.extend(place.coords), { padding: [48, 48], maxZoom: 14 });
@@ -918,11 +1133,27 @@ elements.locateButton.addEventListener("click", useGeolocation);
 elements.locateTopButton.addEventListener("click", useGeolocation);
 elements.drawPlatformButton.addEventListener("click", drawPlatformAndTrain);
 elements.drawStopsButton.addEventListener("click", drawStops);
+elements.drawMode.addEventListener('change', () => {
+  syncJourneyMode();
+  refreshDrawableState();
+});
+elements.generateJourney.addEventListener('click', () => drawRandomJourney());
+elements.regenerateJourney.addEventListener('click', () => {
+  if (state.randomJourney) drawRandomJourney(state.randomJourney.settings);
+});
+elements.journeyTrainCount.addEventListener('change', cancelJourneyRequest);
+for (const slider of [elements.journeyTransfer, elements.journeyDuration]) {
+  slider.addEventListener('input', () => {
+    updateJourneySliders();
+    cancelJourneyRequest();
+  });
+}
 elements.durationInput.addEventListener("input", () => {
   resetDraws();
   refreshDrawableState();
 });
 elements.waitInput.addEventListener("input", () => {
+  cancelJourneyRequest();
   resetDraws();
   refreshDrawableState();
 });
@@ -959,9 +1190,12 @@ elements.stationSearch.addEventListener("submit", async (event) => {
 });
 
 initMap();
+syncJourneyMode();
+updateJourneySliders();
 window.addEventListener('aletrain:language', () => {
   refreshDrawableState();
   applyTranslations();
+  updateJourneySliders();
 });
 window.setInterval(refreshBoard, 30000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) refreshBoard(); });

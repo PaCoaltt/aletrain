@@ -10,7 +10,8 @@ async function appFixture({ failBoard = false, lateReturn = false } = {}) {
   const node = key => {
     if (!nodes.has(key)) nodes.set(key, {
       value: '', textContent: '', innerHTML: '', disabled: false, hidden: false, dataset: {},
-      classList: { add() {}, remove() {}, toggle() {} }, addEventListener() {}, focus() {},
+      classList: { add() {}, remove() {}, toggle() {} }, setAttribute() {}, focus() {},
+      listeners: {}, addEventListener(type, callback) { this.listeners[type] = callback; },
       querySelector: suffix => node(`${key} ${suffix}`),
     });
     return nodes.get(key);
@@ -23,6 +24,7 @@ async function appFixture({ failBoard = false, lateReturn = false } = {}) {
     passList: [{ station }, { station: { id: 'A', name: 'Arrêt A' }, arrival: at(30) },
       { station: { id: 'B', name: 'Arrêt B' }, arrival: at(40) }] };
   const calls = [], events = [];
+  const boards = new Map([[station.id, [journey, { ...journey, cancelled: true }]]]);
   let nextBoardResponse;
   const fetch = async input => {
     const url = new URL(input, 'http://localhost');
@@ -34,7 +36,7 @@ async function appFixture({ failBoard = false, lateReturn = false } = {}) {
         return response;
       }
       if (failBoard) throw new Error('Offline');
-      return { ok: true, json: async () => ({ stationboard: [journey, { ...journey, cancelled: true }] }) };
+      return { ok: true, json: async () => ({ stationboard: boards.get(url.searchParams.get('id')) || [] }) };
     }
     if (url.pathname === '/v1/connections') return { ok: true, json: async () => ({ connections: [{
       from: { station: { name: 'Arrêt' }, departure: at(80) },
@@ -43,7 +45,7 @@ async function appFixture({ failBoard = false, lateReturn = false } = {}) {
     }] }) };
     throw new Error(`Unexpected API call: ${url.pathname}`);
   };
-  const context = vm.createContext({ ...i18n, ...adventure, URL, AbortSignal, Date, Intl, Map, Set, fetch,
+  const context = vm.createContext({ ...i18n, ...adventure, URL, AbortController, AbortSignal, Date, Intl, Map, Set, fetch,
     localStorage: { getItem: () => { throw new Error('Legacy account storage must not be read'); } },
     document: { querySelector: node, body: node('body'), addEventListener() {} },
     window: { addEventListener() {}, setInterval() {}, clearTimeout() {}, dispatchEvent: event => events.push(event) },
@@ -57,6 +59,9 @@ async function appFixture({ failBoard = false, lateReturn = false } = {}) {
   node('#waitInput').value = '45';
   node('#adventureInput').value = 'all';
   node('#stayInput').value = '30';
+  node('#journeyTrainCount').value = '2';
+  node('#journeyTransfer').value = '5';
+  node('#journeyDuration').value = '180';
   const deadline = adventure.swissDateTime(now + 180 * 60000);
   node('#returnInput').value = `${deadline.date}T${deadline.time}`;
   context.app.state.station = station;
@@ -67,7 +72,7 @@ async function appFixture({ failBoard = false, lateReturn = false } = {}) {
     });
     return releaseBoard;
   };
-  return { ...context.app, node, calls, events, journey, deferBoard };
+  return { ...context.app, node, calls, events, journey, deferBoard, boards, at };
 }
 
 test('draw refreshes departures, selects the updated platform and confirms a feasible return', async () => {
@@ -161,4 +166,66 @@ test('refresh skips hidden pages and prevents stale stop draws after an API fail
   await offline.refreshBoard();
   assert.equal(offline.state.refreshFailed, true);
   assert.equal(offline.node('#drawStopsButton').disabled, true);
+});
+
+test('random journey builds a complete train-only itinerary and refreshes its first train in place', async () => {
+  const app = await appFixture();
+  const [a] = app.journey.passList.slice(1).map(stop => stop.station);
+  const c = { id: 'C', name: 'Arrêt C' };
+  const d = { id: 'D', name: 'Arrêt D' };
+  const train = (number, from, to, departure, arrival) => ({
+    category: 'S', number, to: to.name, stop: { station: from, departure: app.at(departure) },
+    passList: [{ station: from }, { station: to, arrival: app.at(arrival) }],
+  });
+  app.boards.set('A', [
+    train('101', a, c, 34, 45),
+    train('102', a, c, 35, 50),
+    train('103', a, app.state.station, 36, 45),
+  ]);
+  app.boards.set('C', [train('201', c, d, 56, 90), train('202', c, d, 56, 68)]);
+  app.node('#drawMode').value = 'journey';
+  app.node('#drawMode').listeners.change();
+  app.node('#journeyTrainCount').value = '3';
+  app.node('#journeyDuration').value = '75';
+  await app.node('#generateJourney').listeners.click();
+
+  const trip = app.state.randomJourney;
+  assert.deepEqual(trip.legs.map(leg => leg.journey.number), ['90', '102', '202']);
+  assert.equal(trip.legs[1].departure - trip.legs[0].arrival, 5 * 60000);
+  assert.ok(trip.legs.at(-1).arrival - trip.startedAt <= 75 * 60000);
+  assert.equal(app.node('#simpleDraw').hidden, true);
+  assert.match(app.node('#journeyResult').innerHTML, /Lausanne → Arrêt D/);
+  assert.ok(app.calls.every(url => url.searchParams.getAll('transportations[]').join() === 'train'));
+  const transfer = adventure.swissDateTime(Date.parse(app.at(35)));
+  assert.equal(app.calls.find(url => url.searchParams.get('id') === 'A').searchParams.get('datetime'), `${transfer.date} ${transfer.time}`);
+
+  await app.refreshBoard();
+  const lateFirstTrain = { ...app.journey, passList: [...app.journey.passList] };
+  lateFirstTrain.passList[1] = { ...lateFirstTrain.passList[1], delay: 3 };
+  app.boards.set('origin', [lateFirstTrain]);
+  await app.refreshBoard();
+  assert.equal(app.state.randomJourney, trip);
+  assert.equal(app.node('#journeyTrainCount').value, '3');
+  assert.equal(app.node('#journeyTransfer').value, '5');
+  assert.equal(app.node('#journeyDuration').value, '75');
+  assert.match(app.node('#journeyResult').innerHTML, /Lausanne → Arrêt D/);
+  assert.match(app.node('#journeyResult').innerHTML, /2 min de correspondance/);
+  assert.match(app.node('#journeyResult').innerHTML, /peuvent compromettre/);
+
+  app.node('#journeyTrainCount').value = '5';
+  app.boards.set('origin', [app.journey]);
+  await app.node('#regenerateJourney').listeners.click();
+  assert.equal(app.state.randomJourney.legs.length, 3);
+  assert.equal(app.node('#journeyTrainCount').value, '5');
+});
+
+test('an impossible transfer reports failure without displaying a partial journey', async () => {
+  const app = await appFixture();
+  app.node('#drawMode').value = 'journey';
+  await app.node('#generateJourney').listeners.click();
+  assert.equal(app.state.randomJourney, null);
+  assert.equal(app.node('#journeyMessage').dataset.i18n, 'journey.none');
+  assert.equal(app.node('#journeyResult').innerHTML, '');
+  assert.equal(app.node('#regenerateJourney').disabled, true);
+  assert.equal(app.calls.length, 3);
 });

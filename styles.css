@@ -65,6 +65,13 @@ input::placeholder { color: #848a81; }
 .duration-row { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 13px; }
 .duration-row input { width: 82px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .duration-control small { color: var(--muted); font-size: 12px; line-height: 1.4; }
+.duration-control input[type="range"] { padding: 0; accent-color: var(--red); }
+.journey-range-value { color: var(--muted); font-variant-numeric: tabular-nums; }
+.journey-message { margin: 0; }
+.journey-legs { display: grid; gap: 12px; margin: 0; padding-left: 22px; }
+.journey-legs h3 { margin: 0; font-size: 15px; }
+.journey-legs li { border-top: 1px solid var(--line); padding: 8px 0 0 3px; overflow-wrap: anywhere; }
+.journey-actions { display: grid; gap: 12px; }
 .wait-control { margin: 14px 0 0; }
 .activity-section { display: grid; gap: 18px; margin-top: 24px; padding-top: 26px; border-top: 1px solid var(--line); }
 .activity-intro, .activity-result { color: var(--muted); font-size: 13px; line-height: 1.6; }
