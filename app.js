@@ -36,6 +36,7 @@ const elements = {
   stopCount: document.querySelector("#stopCount"),
   drawPlatformButton: document.querySelector("#drawPlatformButton"),
   drawStopsButton: document.querySelector("#drawStopsButton"),
+  drawRecheck: document.querySelector("#drawRecheck"),
   trainResult: document.querySelector("#trainResult"),
   stopsPreview: document.querySelector("#stopsPreview"),
   departureList: document.querySelector("#departureList"),
@@ -470,30 +471,39 @@ function departureSignature(journey) {
     (journey.passList || []).map(stop => [stop.station?.id, stopTime(stop, 'arrival'), delayMinutes(stop, 'arrival'), platformFor({ stop }), cancelled(stop)])]);
 }
 async function refreshBoard() {
-  if (!state.station || state.busy || state.loading || state.refreshing || document.hidden) return;
+  if (!state.station || state.loading || state.refreshing || document.hidden) return;
   state.refreshing = true;
-  const revision = state.revision;
+  // A station/mode change or a completed transport draw replaces this board.
+  const previousBoard = state.stationboard;
+  let board;
   try {
-    const board = await loadStationboard(state.station);
-    if (revision !== state.revision) return;
-    const previous = state.selectedJourney;
-    if (previous) {
-      const next = board.find(journey => serviceKey(journey) === serviceKey(previous));
-      if (!next || departureSignature(next) !== departureSignature(previous)) {
-        resetDraws();
-        setStatus('recheck', 'warning');
-      } else state.selectedJourney = next;
-    }
-    state.stationboard = board;
-    recordBoardReceipt();
-    refreshDrawableState();
-    if (state.selectedJourney) elements.drawStopsButton.disabled = false;
+    board = await loadStationboard(state.station);
   } catch {
-    if (revision !== state.revision) return;
+    if (state.loading || state.stationboard !== previousBoard) return;
     state.refreshFailed = true;
     setText(document.querySelector('#realtimeStatus'), 'board.stale', { time: formatTime(new Date(state.boardLoadedAt)) });
-    elements.drawStopsButton.disabled = true;
+    updateDrawStopsButton();
+    return;
   } finally { state.refreshing = false; }
+  if (state.loading || state.stationboard !== previousBoard) return;
+  state.stationboard = board;
+  recordBoardReceipt();
+  refreshDrawableState();
+}
+
+function selectedJourneyNeedsRecheck() {
+  const journey = state.selectedJourney;
+  if (!journey) return false;
+  if (state.refreshFailed || Date.now() - state.boardLoadedAt > 60000 ||
+      Date.parse(journeyDeparture(journey)) < Date.now() + 120000) return true;
+  const current = state.stationboard.find(candidate => serviceKey(candidate) === serviceKey(journey));
+  return !current || departureSignature(current) !== departureSignature(journey);
+}
+
+function updateDrawStopsButton() {
+  const needsRecheck = selectedJourneyNeedsRecheck();
+  elements.drawRecheck.hidden = !needsRecheck;
+  elements.drawStopsButton.disabled = state.loading || state.busy || !state.selectedJourney || needsRecheck;
 }
 
 function getReachableStops(journey) {
@@ -539,6 +549,7 @@ function refreshDrawableState() {
   state.platforms = groupByPlatform(getDrawableJourneys());
   renderStation();
   renderDepartures();
+  updateDrawStopsButton();
 }
 
 function renderStation() {
@@ -606,7 +617,7 @@ function resetDraws() {
   document.querySelector("#routeSummary").hidden = true;
   state.selectedJourney = null;
   state.selectedPlatform = null;
-  elements.drawStopsButton.disabled = true;
+  updateDrawStopsButton();
   setText(elements.stopCount, 'stops.other', { count: 0 });
   setHtml(elements.trainResult, `
     <span class="result-kicker">${tx('result')}</span>
@@ -719,9 +730,6 @@ async function drawPlatformAndTrain() {
 
     state.selectedPlatform = platform;
     state.selectedJourney = journey;
-    elements.drawPlatformButton.classList.remove("is-spinning");
-    refreshDrawableState();
-    elements.drawStopsButton.disabled = false;
 
     const reachableStops = getReachableStops(journey);
     setText(elements.stopCount, 'stops.other', { count: reachableStops.length });
@@ -766,10 +774,8 @@ function getRemainingStops(journey) {
 
 async function drawStops() {
   if (state.busy || !state.selectedJourney) return;
-  if (state.refreshFailed || Date.now() - state.boardLoadedAt > 60000 || Date.parse(journeyDeparture(state.selectedJourney)) < Date.now() + 120000) {
-    resetDraws();
-    refreshDrawableState();
-    setStatus('recheck', 'warning');
+  if (selectedJourneyNeedsRecheck()) {
+    updateDrawStopsButton();
     return;
   }
   let settings;
@@ -779,7 +785,6 @@ async function drawStops() {
   const revision = state.revision;
   state.busy = true;
   refreshDrawableState();
-  elements.drawStopsButton.disabled = true;
   window.dispatchEvent(new CustomEvent('aletrain:destination', { detail: null }));
   clearRoute();
   document.querySelector('#routeSummary').hidden = true;
@@ -809,7 +814,7 @@ async function drawStops() {
       if (!returnTrip) throw Object.assign(new Error('return.none'), { key: 'return.none' });
     }
     if (revision !== state.revision) return;
-    if (Date.now() - state.boardLoadedAt > 60000 || Date.parse(journeyDeparture(state.selectedJourney)) < Date.now() + 120000) throw Object.assign(new Error('recheck'), { key: 'recheck' });
+    if (selectedJourneyNeedsRecheck()) throw Object.assign(new Error('recheck'), { key: 'recheck' });
   } catch (error) {
     if (revision === state.revision) {
       setText(elements.stopsPreview, settings ? 'stop.unconfirmedReturn' : 'stop.unconfirmed');
@@ -819,7 +824,6 @@ async function drawStops() {
   } finally {
     if (revision === state.revision) {
       state.busy = false;
-      elements.drawStopsButton.disabled = false;
       refreshDrawableState();
     }
   }

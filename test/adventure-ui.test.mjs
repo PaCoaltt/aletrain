@@ -23,10 +23,16 @@ async function appFixture({ failBoard = false, lateReturn = false } = {}) {
     passList: [{ station }, { station: { id: 'A', name: 'Arrêt A' }, arrival: at(30) },
       { station: { id: 'B', name: 'Arrêt B' }, arrival: at(40) }] };
   const calls = [], events = [];
+  let nextBoardResponse;
   const fetch = async input => {
     const url = new URL(input, 'http://localhost');
     calls.push(url);
     if (url.pathname === '/v1/stationboard') {
+      if (nextBoardResponse) {
+        const response = nextBoardResponse;
+        nextBoardResponse = null;
+        return response;
+      }
       if (failBoard) throw new Error('Offline');
       return { ok: true, json: async () => ({ stationboard: [journey, { ...journey, cancelled: true }] }) };
     }
@@ -54,7 +60,14 @@ async function appFixture({ failBoard = false, lateReturn = false } = {}) {
   const deadline = adventure.swissDateTime(now + 180 * 60000);
   node('#returnInput').value = `${deadline.date}T${deadline.time}`;
   context.app.state.station = station;
-  return { ...context.app, node, calls, events, journey };
+  const deferBoard = () => {
+    let releaseBoard;
+    nextBoardResponse = new Promise(release => {
+      releaseBoard = board => release({ ok: true, json: async () => ({ stationboard: board }) });
+    });
+    return releaseBoard;
+  };
+  return { ...context.app, node, calls, events, journey, deferBoard };
 }
 
 test('draw refreshes departures, selects the updated platform and confirms a feasible return', async () => {
@@ -83,30 +96,60 @@ test('a late return never confirms a destination and an unavailable board never 
   assert.equal(offline.node('#drawStopsButton').disabled, true);
 });
 
-test('expired departure data requires a new transport draw', async () => {
+test('expired departure data keeps the result and requires a new transport draw', async () => {
   const app = await appFixture();
   await app.drawPlatformAndTrain();
   app.state.boardLoadedAt = Date.now() - 61000;
   await app.drawStops();
-  assert.equal(app.state.selectedJourney, null);
+  assert.ok(app.state.selectedJourney);
   assert.equal(app.calls.filter(url => url.pathname.endsWith('connections')).length, 0);
-  assert.match(app.node('#statusLine').textContent, /revérifiés/);
+  assert.equal(app.node('#drawRecheck').hidden, false);
 });
 
-test('background refresh preserves an unchanged draw and invalidates changed or cancelled services', async () => {
+test('refresh updates departures and preserves criteria and both draw results', async () => {
   const app = await appFixture();
   await app.drawPlatformAndTrain();
+  const selected = app.state.selectedJourney;
+  assert.equal(app.node('#drawStopsButton').disabled, false);
+  const draw = app.drawStops();
+  assert.equal(app.state.busy, true);
+  const boardBeforeRefresh = app.state.stationboard;
   await app.refreshBoard();
+  assert.notEqual(app.state.stationboard, boardBeforeRefresh);
+  await draw;
+  const train = app.node('#trainResult').innerHTML;
+  const stops = app.node('#stopsPreview').innerHTML;
+  const eventCount = app.events.length;
+  const fields = ['#stationInput', '#durationInput', '#waitInput', '#adventureInput', '#returnInput', '#stayInput'];
+  const release = app.deferBoard();
+  const refresh = app.refreshBoard();
+  app.node('#stationInput').value = 'Gen';
+  const values = fields.map(field => app.node(field).value);
+  release([{ ...selected, stop: { ...selected.stop, prognosis: { ...selected.stop.prognosis, platform: '9' } } }]);
+  await refresh;
+  assert.match(app.node('#departureList').innerHTML, /platform-badge">9</);
+  assert.equal(app.state.selectedJourney, selected);
   assert.equal(app.state.selectedPlatform, '3');
-  assert.equal(app.state.refreshFailed, false);
-  // The next supplier response now carries a new platform.
-  app.journey.stop.prognosis = { ...app.journey.stop.prognosis, platform: '9' };
-  // Keep an independent snapshot of the previous selected response.
-  app.state.selectedJourney = { ...app.journey, stop: { ...app.journey.stop, prognosis: { ...app.journey.stop.prognosis, platform: '3' } } };
-  await app.refreshBoard();
-  assert.equal(app.state.selectedJourney, null);
+  assert.deepEqual(fields.map(field => app.node(field).value), values);
+  assert.equal(app.node('#trainResult').innerHTML, train);
+  assert.equal(app.node('#stopsPreview').innerHTML, stops);
+  assert.equal(app.events.length, eventCount);
   assert.equal(app.node('#drawStopsButton').disabled, true);
-  assert.match(app.node('#statusLine').textContent, /revérifiés/);
+  assert.equal(app.node('#drawRecheck').hidden, false);
+  await app.refreshBoard();
+  assert.equal(app.node('#drawStopsButton').disabled, false);
+  assert.equal(app.node('#drawRecheck').hidden, true);
+});
+
+test('a delayed refresh cannot overwrite the board used by a newer transport draw', async () => {
+  const app = await appFixture();
+  const release = app.deferBoard();
+  const refresh = app.refreshBoard();
+  await app.drawPlatformAndTrain();
+  release([]);
+  await refresh;
+  assert.equal(app.state.stationboard.includes(app.state.selectedJourney), true);
+  assert.equal(app.node('#drawStopsButton').disabled, false);
 });
 
 test('refresh skips hidden pages and prevents stale stop draws after an API failure', async () => {
