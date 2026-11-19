@@ -78,7 +78,13 @@
             </div>
             <section class="draw-card" id="journeyDraw" aria-labelledby="journeyTitle" hidden>
               <div class="step-heading"><span class="step-number">02</span><h2 id="journeyTitle" data-i18n="journey.title">Voyage aléatoire</h2></div>
-              <label class="duration-control" for="journeyTrainCount"><span data-i18n="journey.trains">Nombre de trains</span><select id="journeyTrainCount"><option value="2" data-i18n="journey.number" data-i18n-params="{&quot;number&quot;:2}">2</option><option value="3" data-i18n="journey.number" data-i18n-params="{&quot;number&quot;:3}">3</option><option value="4" data-i18n="journey.number" data-i18n-params="{&quot;number&quot;:4}">4</option><option value="5" data-i18n="journey.number" data-i18n-params="{&quot;number&quot;:5}">5</option></select></label>
+              <label class="duration-control" for="journeyTrainCount">
+                <span data-i18n="journey.trains">Nombre de trains</span>
+                <span class="journey-count-slider">
+                  <input type="range" id="journeyTrainCount" min="2" max="5" step="1" value="2" />
+                  <span class="journey-count-value" id="journeyTrainCountValue" aria-hidden="true" data-i18n="journey.number" data-i18n-params="{&quot;number&quot;:2}">2</span>
+                </span>
+              </label>
               <label class="duration-control" for="journeyTransfer"><span data-i18n="journey.minimum">Correspondance minimale</span><input type="range" id="journeyTransfer" min="2" max="30" value="5" /><span class="journey-range-value" id="journeyTransferValue" aria-hidden="true" data-i18n="journey.minutes" data-i18n-params="{&quot;minutes&quot;:5}">5 min</span></label>
               <label class="duration-control" for="journeyDuration"><span data-i18n="journey.maximum">Durée maximale, attentes comprises</span><input type="range" id="journeyDuration" min="30" max="360" step="15" value="180" /><span class="journey-range-value" id="journeyDurationValue" aria-hidden="true" data-i18n="journey.minutes" data-i18n-params="{&quot;minutes&quot;:180}">180 min</span></label>
               <button class="draw-button" id="generateJourney" type="button" disabled><span data-i18n="journey.generate">Tirer un voyage</span><span aria-hidden="true">→</span></button>

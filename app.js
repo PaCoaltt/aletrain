@@ -56,6 +56,7 @@ const elements = {
   adventureControl: document.querySelector('label[for="adventureInput"]'),
   journeyDraw: document.querySelector('#journeyDraw'),
   journeyTrainCount: document.querySelector('#journeyTrainCount'),
+  journeyTrainCountValue: document.querySelector('#journeyTrainCountValue'),
   journeyTransfer: document.querySelector('#journeyTransfer'),
   journeyDuration: document.querySelector('#journeyDuration'),
   journeyTransferValue: document.querySelector('#journeyTransferValue'),
@@ -553,11 +554,28 @@ function cancelJourneyRequest() {
 }
 
 function updateJourneySliders() {
+  const count = elements.journeyTrainCount;
+  const position = (Number(count.value) - Number(count.min)) / (Number(count.max) - Number(count.min));
+  setText(elements.journeyTrainCountValue, 'journey.number', { number: Number(count.value) });
+  elements.journeyTrainCountValue.style.setProperty('--slider-position', String(position));
   for (const [input, value] of [[elements.journeyTransfer, elements.journeyTransferValue], [elements.journeyDuration, elements.journeyDurationValue]]) {
     const minutes = Number(input.value);
     setText(value, 'journey.minutes', { minutes });
     input.setAttribute('aria-valuetext', value.textContent);
   }
+}
+
+function renderJourneyStop(station, stop, timestamp, firstDay) {
+  const day = (Date.parse(swissDateTime(timestamp).date) - firstDay) / 86400000;
+  const platform = platformFor({ stop });
+  return `<p class="journey-stop">
+    <span>${escapeHtml(station.name)}</span>
+    <span class="journey-stop-meta">
+      <strong class="journey-time">${dateHtml(new Date(timestamp).toISOString())}</strong>
+      ${day > 0 ? `<span class="journey-day">${tx('journey.nextDay', { days: day })}</span>` : ''}
+      ${platform ? `<span class="train-chip journey-platform">${tx('journey.platform', { platform })}</span>` : ''}
+    </span>
+  </p>`;
 }
 
 function renderRandomJourney(firstLeg, needsRecheck = false) {
@@ -572,7 +590,7 @@ function renderRandomJourney(firstLeg, needsRecheck = false) {
   const legs = firstLeg ? [firstLeg, ...trip.legs.slice(1)] : trip.legs;
   const finalLeg = legs.at(-1);
   const minutes = Math.ceil((finalLeg.arrival - trip.startedAt) / 60000);
-  const time = timestamp => dateHtml(new Date(timestamp).toISOString(), 'datetime');
+  const firstDay = Date.parse(swissDateTime(legs[0].departure).date);
   const markup = `
     <strong>${escapeHtml(legs[0].from.name)} → ${escapeHtml(finalLeg.arrivalStop.station.name)}</strong>
     <p>${tx('journey.total', { minutes })}</p>
@@ -580,12 +598,15 @@ function renderRandomJourney(firstLeg, needsRecheck = false) {
     <ol class="journey-legs">${legs.map((leg, index) => {
       const previous = legs[index - 1];
       const wait = previous ? Math.floor((leg.departure - previous.arrival) / 60000) : 0;
+      const arrivalDelay = delayMinutes(leg.arrivalStop, 'arrival');
+      const departureDelay = delayMinutes(leg.journey.stop);
+      const delay = arrivalDelay > 0 ? arrivalDelay : departureDelay;
       return `<li>
-        ${previous ? `<p>${wait < 0 ? tx('journey.missed') : tx('journey.change', { minutes: wait })}</p>` : ''}
+        ${previous ? `<p class="journey-transfer">${wait < 0 ? tx('journey.missed') : tx('journey.change', { minutes: wait })}</p>` : ''}
         <h3>${journeyTitleHtml(leg.journey)}</h3>
-        <p>${escapeHtml(leg.from.name)} · ${time(leg.departure)}<br>
-          ${escapeHtml(leg.arrivalStop.station.name)} · ${time(leg.arrival)}</p>
-        <p>${renderStopStatus(leg.journey.stop, leg.journey)} · ${renderStopStatus(leg.arrivalStop, null, 'arrival')}</p>
+        ${renderJourneyStop(leg.from, leg.journey.stop, leg.departure, firstDay)}
+        ${renderJourneyStop(leg.arrivalStop.station, leg.arrivalStop, leg.arrival, firstDay)}
+        ${delay > 0 ? `<p class="journey-delay">${tx('journey.delay', { minutes: Math.max(1, Math.round(delay)) })}</p>` : ''}
       </li>`;
     }).join('')}</ol>
     <p>${tx('journey.notice')}</p>`;
@@ -1141,8 +1162,7 @@ elements.generateJourney.addEventListener('click', () => drawRandomJourney());
 elements.regenerateJourney.addEventListener('click', () => {
   if (state.randomJourney) drawRandomJourney(state.randomJourney.settings);
 });
-elements.journeyTrainCount.addEventListener('change', cancelJourneyRequest);
-for (const slider of [elements.journeyTransfer, elements.journeyDuration]) {
+for (const slider of [elements.journeyTrainCount, elements.journeyTransfer, elements.journeyDuration]) {
   slider.addEventListener('input', () => {
     updateJourneySliders();
     cancelJourneyRequest();

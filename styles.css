@@ -67,10 +67,39 @@ input::placeholder { color: #848a81; }
 .duration-control small { color: var(--muted); font-size: 12px; line-height: 1.4; }
 .duration-control input[type="range"] { padding: 0; accent-color: var(--red); }
 .journey-range-value { color: var(--muted); font-variant-numeric: tabular-nums; }
+.journey-count-slider { --thumb-size: 24px; position: relative; display: block; padding-top: 24px; }
+.journey-count-slider input { appearance: none; display: block; height: 44px; margin: 0; border: 0; background: transparent; }
+.journey-count-slider input::-webkit-slider-runnable-track { height: 4px; border-radius: 4px; background: var(--line); }
+.journey-count-slider input::-moz-range-track { height: 4px; border-radius: 4px; background: var(--line); }
+.journey-count-slider input::-webkit-slider-thumb { appearance: none; width: var(--thumb-size); height: var(--thumb-size); margin-top: -10px; border: 0; border-radius: 50%; background: var(--red); }
+.journey-count-slider input::-moz-range-thumb { width: var(--thumb-size); height: var(--thumb-size); border: 0; border-radius: 50%; background: var(--red); }
+.journey-count-value {
+  position: absolute;
+  top: 3px;
+  left: calc(var(--thumb-size) / 2 + (100% - var(--thumb-size)) * var(--slider-position, 0));
+  transform: translateX(-50%);
+  display: grid;
+  place-items: center;
+  width: var(--thumb-size);
+  height: var(--thumb-size);
+  border-radius: 6px;
+  background: var(--ink);
+  color: white;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
 .journey-message { margin: 0; }
 .journey-legs { display: grid; gap: 12px; margin: 0; padding-left: 22px; }
-.journey-legs h3 { margin: 0; font-size: 15px; }
+.journey-legs h3 { margin: 0; font-size: 16px; font-weight: 700; }
 .journey-legs li { border-top: 1px solid var(--line); padding: 8px 0 0 3px; overflow-wrap: anywhere; }
+.journey-stop { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 3px 10px; margin-top: 4px; }
+.journey-stop-meta { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: 4px 7px; }
+.journey-stop .journey-time { color: var(--ink); font-size: 14px; font-variant-numeric: tabular-nums; }
+.journey-day { font-size: 11px; }
+.journey-platform { color: var(--ink); padding: 1px 5px; font-weight: 600; }
+.journey-legs .journey-transfer { margin-bottom: 5px; font-weight: 600; }
+.journey-legs .journey-delay { margin-top: 4px; color: var(--red-dark); }
 .journey-actions { display: grid; gap: 12px; }
 .wait-control { margin: 14px 0 0; }
 .activity-section { display: grid; gap: 18px; margin-top: 24px; padding-top: 26px; border-top: 1px solid var(--line); }
